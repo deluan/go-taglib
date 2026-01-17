@@ -284,6 +284,45 @@ func ReadMP4Atoms(path string) (map[string][]string, error) {
 	return atoms, nil
 }
 
+// ReadASFAttributes reads all ASF attributes from a WMA/ASF file at the given path.
+// This provides direct access to the raw ASF attributes, including standard attributes like
+// WM/AlbumTitle, WM/AlbumArtist, WM/TrackNumber, etc.
+// The returned map has attribute names as keys and attribute data as values.
+// Multi-valued attributes are returned as slices with multiple values.
+func ReadASFAttributes(path string) (map[string][]string, error) {
+	var err error
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("make path abs %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	mod, err := newModuleRO(dir)
+	if err != nil {
+		return nil, fmt.Errorf("init module: %w", err)
+	}
+	defer mod.close()
+
+	var raw wasmStrings
+	if err := mod.call("taglib_file_asf_attributes", &raw, wasmString(wasmPath(path))); err != nil {
+		return nil, fmt.Errorf("call: %w", err)
+	}
+	if raw == nil {
+		return nil, ErrInvalidFile
+	}
+
+	// If raw is empty, the file has no ASF attributes
+	var attrs = map[string][]string{}
+	for _, row := range raw {
+		parts := strings.SplitN(row, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		attrs[parts[0]] = append(attrs[parts[0]], parts[1])
+	}
+	return attrs, nil
+}
+
 // Properties contains the audio properties of a media file.
 type Properties struct {
 	// Length is the duration of the audio

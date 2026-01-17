@@ -24,7 +24,10 @@
 #include "riff/wav/wavfile.h"
 #include "riff/wav/wavproperties.h"
 #include "ape/apeproperties.h"
+#include "asf/asffile.h"
 #include "asf/asfproperties.h"
+#include "asf/asftag.h"
+#include "asf/asfattribute.h"
 #include "wavpack/wavpackproperties.h"
 #include "dsf/dsfproperties.h"
 
@@ -569,6 +572,117 @@ taglib_file_mp4_atoms(const char *filename) {
 
   atoms[i] = nullptr;
   return atoms;
+}
+
+__attribute__((export_name("taglib_file_asf_attributes"))) char **
+taglib_file_asf_attributes(const char *filename) {
+  TagLib::FileRef fileRef(filename);
+  if (fileRef.isNull())
+    return nullptr;
+
+  // Try to cast to ASF::File
+  TagLib::ASF::File *asfFile = dynamic_cast<TagLib::ASF::File *>(fileRef.file());
+  if (!asfFile || !asfFile->tag()) {
+    // Return empty array instead of nullptr when there are no ASF attributes
+    char **emptyAttrs = static_cast<char **>(malloc(sizeof(char *)));
+    if (!emptyAttrs)
+      return nullptr;
+    emptyAttrs[0] = nullptr;
+    return emptyAttrs;
+  }
+
+  TagLib::ASF::Tag *asfTag = asfFile->tag();
+  const TagLib::ASF::AttributeListMap &attrMap = asfTag->attributeListMap();
+
+  // Count basic fields (Title, Author, Copyright, Description, Rating)
+  size_t basicCount = 0;
+  if (!asfTag->title().isEmpty()) basicCount++;
+  if (!asfTag->artist().isEmpty()) basicCount++;
+  if (!asfTag->copyright().isEmpty()) basicCount++;
+  if (!asfTag->comment().isEmpty()) basicCount++;
+  if (!asfTag->rating().isEmpty()) basicCount++;
+
+  // Count total entries (multi-value attributes count as multiple)
+  size_t attrCount = basicCount;
+  for (auto it = attrMap.begin(); it != attrMap.end(); ++it) {
+    attrCount += it->second.size();
+  }
+
+  if (attrCount == 0) {
+    char **emptyAttrs = static_cast<char **>(malloc(sizeof(char *)));
+    if (!emptyAttrs)
+      return nullptr;
+    emptyAttrs[0] = nullptr;
+    return emptyAttrs;
+  }
+
+  char **attrs = static_cast<char **>(malloc(sizeof(char *) * (attrCount + 1)));
+  if (!attrs)
+    return nullptr;
+
+  size_t i = 0;
+
+  // Add basic fields first (these are stored separately from the attributeListMap)
+  if (!asfTag->title().isEmpty()) {
+    TagLib::String row = TagLib::String("Title\t") + asfTag->title();
+    attrs[i++] = to_char_array(row);
+  }
+  if (!asfTag->artist().isEmpty()) {
+    TagLib::String row = TagLib::String("Author\t") + asfTag->artist();
+    attrs[i++] = to_char_array(row);
+  }
+  if (!asfTag->copyright().isEmpty()) {
+    TagLib::String row = TagLib::String("Copyright\t") + asfTag->copyright();
+    attrs[i++] = to_char_array(row);
+  }
+  if (!asfTag->comment().isEmpty()) {
+    TagLib::String row = TagLib::String("Description\t") + asfTag->comment();
+    attrs[i++] = to_char_array(row);
+  }
+  if (!asfTag->rating().isEmpty()) {
+    TagLib::String row = TagLib::String("Rating\t") + asfTag->rating();
+    attrs[i++] = to_char_array(row);
+  }
+
+  // Add extended attributes
+  for (auto it = attrMap.begin(); it != attrMap.end(); ++it) {
+    TagLib::String key = it->first;
+    const TagLib::ASF::AttributeList &attrList = it->second;
+
+    for (const auto &attr : attrList) {
+      TagLib::String value;
+      switch (attr.type()) {
+        case TagLib::ASF::Attribute::UnicodeType:
+          value = attr.toString();
+          break;
+        case TagLib::ASF::Attribute::BoolType:
+          value = attr.toBool() ? "1" : "0";
+          break;
+        case TagLib::ASF::Attribute::DWordType:
+          value = TagLib::String::number(attr.toUInt());
+          break;
+        case TagLib::ASF::Attribute::QWordType:
+          value = TagLib::String::number(static_cast<long long>(attr.toULongLong()));
+          break;
+        case TagLib::ASF::Attribute::WordType:
+          value = TagLib::String::number(attr.toUShort());
+          break;
+        case TagLib::ASF::Attribute::BytesType:
+        case TagLib::ASF::Attribute::GuidType:
+          // Binary data - include with empty value (like ID3v2 does for APIC)
+          value = "";
+          break;
+        default:
+          continue;
+      }
+
+      TagLib::String row = key + "\t" + value;
+      attrs[i++] = to_char_array(row);
+    }
+  }
+
+  attrs[i] = nullptr;
+  return attrs;
 }
 
 __attribute__((export_name("taglib_file_write_id3v2_frames"))) bool

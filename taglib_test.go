@@ -253,9 +253,9 @@ func TestPropertiesBitsPerSample(t *testing.T) {
 	}{
 		{"FLAC", egFLAC, "eg.flac", 24},
 		{"WAV", egWAV, "eg.wav", 16},
-		{"M4A", egM4a, "eg.m4a", 16},    // AAC in M4A container
-		{"MP3", egMP3, "eg.mp3", 0},     // MP3 doesn't support BitsPerSample
-		{"OGG", egOgg, "eg.ogg", 0},     // Vorbis doesn't support BitsPerSample
+		{"M4A", egM4a, "eg.m4a", 16}, // AAC in M4A container
+		{"MP3", egMP3, "eg.mp3", 0},  // MP3 doesn't support BitsPerSample
+		{"OGG", egOgg, "eg.ogg", 0},  // Vorbis doesn't support BitsPerSample
 	}
 
 	for _, tt := range tests {
@@ -652,6 +652,87 @@ func TestReadID3v1FramesInvalid(t *testing.T) {
 	}
 }
 
+func TestReadASFAttributes(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egWMA, "eg.wma")
+
+	// First write some tags using WriteTags so we have ASF data
+	err := taglib.WriteTags(path, map[string][]string{
+		"TITLE":  {"Test Title"},
+		"ARTIST": {"Test Artist"},
+		"ALBUM":  {"Test Album"},
+	}, taglib.Clear)
+	nilErr(t, err)
+
+	// Now read the ASF attributes directly
+	attrs, err := taglib.ReadASFAttributes(path)
+	nilErr(t, err)
+
+	// Should have attributes
+	if len(attrs) == 0 {
+		t.Fatal("expected some ASF attributes")
+	}
+
+	// Check that we got Title, Author (artist), WM/AlbumTitle attributes
+	// ASF has basic fields (Title, Author) and extended attributes (WM/*)
+	if _, ok := attrs["Title"]; !ok {
+		t.Error("expected Title attribute")
+	}
+	if _, ok := attrs["Author"]; !ok {
+		t.Error("expected Author attribute for artist")
+	}
+	if _, ok := attrs["WM/AlbumTitle"]; !ok {
+		t.Error("expected WM/AlbumTitle attribute for album")
+	}
+}
+
+func TestReadASFAttributesEmpty(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egWMA, "eg.wma")
+
+	// Clear all tags first
+	err := taglib.WriteTags(path, nil, taglib.Clear)
+	nilErr(t, err)
+
+	// Read ASF attributes from a file with no tags - should return empty map, not error
+	attrs, err := taglib.ReadASFAttributes(path)
+	nilErr(t, err)
+
+	// Should be empty or have no meaningful attributes
+	if attrs == nil {
+		t.Fatal("expected non-nil map")
+	}
+}
+
+func TestReadASFAttributesNonWMA(t *testing.T) {
+	t.Parallel()
+
+	// ASF is specific to WMA, so non-WMA files should return empty attributes
+	path := tmpf(t, egFLAC, "eg.flac")
+
+	attrs, err := taglib.ReadASFAttributes(path)
+	nilErr(t, err)
+
+	// FLAC doesn't use ASF, should return empty map
+	if len(attrs) != 0 {
+		t.Errorf("expected empty attributes for FLAC, got %d", len(attrs))
+	}
+}
+
+func TestReadASFAttributesInvalid(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, []byte("not a file"), "invalid.wma")
+
+	attrs, err := taglib.ReadASFAttributes(path)
+	// Invalid file should return ErrInvalidFile (nil attrs from WASM)
+	if err == nil && attrs != nil && len(attrs) > 0 {
+		t.Error("expected error or empty attributes for invalid file")
+	}
+}
+
 func TestWriteID3v2Frames(t *testing.T) {
 	t.Parallel()
 
@@ -868,6 +949,8 @@ var (
 	egOgg []byte
 	//go:embed testdata/eg.wav
 	egWAV []byte
+	//go:embed testdata/eg.wma
+	egWMA []byte
 	//go:embed testdata/cover.jpg
 	coverJPG []byte
 	//go:embed testdata/eg_lyrics.mp3
