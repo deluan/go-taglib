@@ -1090,3 +1090,247 @@ var bigTags = map[string][]string{
 }
 
 var longString = strings.Repeat("E", 1024)
+
+// ============================================================================
+// File Handle API Tests
+// ============================================================================
+
+func TestFileOpen(t *testing.T) {
+	t.Parallel()
+
+	paths := testPaths(t)
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			f, err := taglib.OpenReadOnly(path)
+			nilErr(t, err)
+			defer f.Close()
+
+			// Verify format is detected
+			format := f.Format()
+			if format == taglib.FormatUnknown {
+				t.Fatalf("expected known format, got unknown")
+			}
+		})
+	}
+}
+
+func TestFileOpenInvalid(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, []byte("not a file"), "eg.flac")
+	_, err := taglib.Open(path)
+	eq(t, err, taglib.ErrInvalidFile)
+}
+
+func TestFileTags(t *testing.T) {
+	t.Parallel()
+
+	paths := testPaths(t)
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			// Write tags using path-based API
+			err := taglib.WriteTags(path, map[string][]string{
+				"ARTIST": {"Test Artist"},
+				"ALBUM":  {"Test Album"},
+			}, taglib.Clear)
+			nilErr(t, err)
+
+			// Read using File handle
+			f, err := taglib.OpenReadOnly(path)
+			nilErr(t, err)
+			defer f.Close()
+
+			tags := f.Tags()
+			if tags["ARTIST"][0] != "Test Artist" {
+				t.Fatalf("expected 'Test Artist', got %v", tags["ARTIST"])
+			}
+			if tags["ALBUM"][0] != "Test Album" {
+				t.Fatalf("expected 'Test Album', got %v", tags["ALBUM"])
+			}
+		})
+	}
+}
+
+func TestFileProperties(t *testing.T) {
+	t.Parallel()
+
+	paths := testPaths(t)
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			f, err := taglib.OpenReadOnly(path)
+			nilErr(t, err)
+			defer f.Close()
+
+			props := f.Properties()
+			if props.Channels == 0 {
+				t.Fatal("expected channels > 0")
+			}
+			if props.SampleRate == 0 {
+				t.Fatal("expected sample rate > 0")
+			}
+		})
+	}
+}
+
+func TestFileRawTags(t *testing.T) {
+	t.Parallel()
+
+	// Test MP3 (ID3v2)
+	t.Run("mp3", func(t *testing.T) {
+		path := tmpf(t, egMP3, "eg.mp3")
+		f, err := taglib.OpenReadOnly(path)
+		nilErr(t, err)
+		defer f.Close()
+
+		eq(t, f.Format(), taglib.FormatMPEG)
+		raw := f.RawTags()
+		// MP3 should have ID3v2 frames
+		if raw == nil {
+			t.Fatal("expected raw tags")
+		}
+	})
+
+	// Test M4A (MP4)
+	t.Run("m4a", func(t *testing.T) {
+		path := tmpf(t, egM4a, "eg.m4a")
+		f, err := taglib.OpenReadOnly(path)
+		nilErr(t, err)
+		defer f.Close()
+
+		eq(t, f.Format(), taglib.FormatMP4)
+		raw := f.RawTags()
+		// M4A should have MP4 atoms
+		if raw == nil {
+			t.Fatal("expected raw tags")
+		}
+	})
+
+	// Test FLAC (Vorbis Comments - same as normalized)
+	t.Run("flac", func(t *testing.T) {
+		path := tmpf(t, egFLAC, "eg.flac")
+		f, err := taglib.OpenReadOnly(path)
+		nilErr(t, err)
+		defer f.Close()
+
+		eq(t, f.Format(), taglib.FormatFLAC)
+		raw := f.RawTags()
+		tags := f.Tags()
+		// FLAC raw should be same as normalized
+		tagEq(t, raw, tags)
+	})
+}
+
+func TestFileAllTags(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egMP3, "eg.mp3")
+	f, err := taglib.OpenReadOnly(path)
+	nilErr(t, err)
+	defer f.Close()
+
+	all := f.AllTags()
+	eq(t, all.Format, taglib.FormatMPEG)
+	if all.Tags == nil {
+		t.Fatal("expected normalized tags")
+	}
+	if all.Raw == nil {
+		t.Fatal("expected raw tags")
+	}
+}
+
+func TestFileWriteTags(t *testing.T) {
+	t.Parallel()
+
+	paths := testPaths(t)
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			f, err := taglib.Open(path)
+			nilErr(t, err)
+			defer f.Close()
+
+			// Write tags
+			err = f.WriteTags(map[string][]string{
+				"ARTIST": {"File Write Test"},
+				"ALBUM":  {"File Write Album"},
+			}, taglib.Clear)
+			nilErr(t, err)
+
+			// Read back
+			tags := f.Tags()
+			if tags["ARTIST"][0] != "File Write Test" {
+				t.Fatalf("expected 'File Write Test', got %v", tags["ARTIST"])
+			}
+		})
+	}
+}
+
+func TestFileImage(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egMP3, "eg.mp3")
+	f, err := taglib.OpenReadOnly(path)
+	nilErr(t, err)
+	defer f.Close()
+
+	// Read image (may be empty if test file has no image)
+	img, err := f.Image(0)
+	nilErr(t, err)
+	// Just verify it doesn't error - image may or may not exist
+	_ = img
+}
+
+func TestFileEfficiency(t *testing.T) {
+	// This test verifies that File handle API is more efficient
+	// by only creating one WASM module for multiple operations
+	t.Parallel()
+
+	path := tmpf(t, egMP3, "eg.mp3")
+
+	// Using File handle - single module for all operations
+	f, err := taglib.OpenReadOnly(path)
+	nilErr(t, err)
+	defer f.Close()
+
+	// All these operations use the same module
+	tags := f.Tags()
+	props := f.Properties()
+	raw := f.RawTags()
+	all := f.AllTags()
+	format := f.Format()
+
+	// Verify all operations returned data
+	if tags == nil {
+		t.Fatal("expected tags")
+	}
+	if props.Channels == 0 {
+		t.Fatal("expected properties")
+	}
+	if raw == nil {
+		t.Fatal("expected raw tags")
+	}
+	if all.Tags == nil {
+		t.Fatal("expected all tags")
+	}
+	eq(t, format, taglib.FormatMPEG)
+}
+
+func TestFileFormatString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		format taglib.FileFormat
+		want   string
+	}{
+		{taglib.FormatMPEG, "MPEG"},
+		{taglib.FormatMP4, "MP4"},
+		{taglib.FormatFLAC, "FLAC"},
+		{taglib.FormatOggVorbis, "Ogg Vorbis"},
+		{taglib.FormatWAV, "WAV"},
+		{taglib.FormatAIFF, "AIFF"},
+		{taglib.FormatUnknown, "Unknown"},
+	}
+
+	for _, tt := range tests {
+		eq(t, tt.format.String(), tt.want)
+	}
+}

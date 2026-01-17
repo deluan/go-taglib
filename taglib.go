@@ -23,6 +23,282 @@ var binaryPath string
 var ErrInvalidFile = fmt.Errorf("invalid file")
 var ErrSavingFile = fmt.Errorf("can't save file")
 
+// FileFormat represents the detected audio file format.
+type FileFormat uint8
+
+// File format constants matching the C++ enum.
+const (
+	FormatUnknown   FileFormat = 0
+	FormatMPEG      FileFormat = 1
+	FormatMP4       FileFormat = 2
+	FormatFLAC      FileFormat = 3
+	FormatOggVorbis FileFormat = 4
+	FormatOggOpus   FileFormat = 5
+	FormatOggFLAC   FileFormat = 6
+	FormatOggSpeex  FileFormat = 7
+	FormatWAV       FileFormat = 8
+	FormatAIFF      FileFormat = 9
+	FormatASF       FileFormat = 10
+	FormatAPE       FileFormat = 11
+	FormatWavPack   FileFormat = 12
+	FormatDSF       FileFormat = 13
+	FormatDSDIFF    FileFormat = 14
+	FormatTrueAudio FileFormat = 15
+	FormatMPC       FileFormat = 16
+	FormatShorten   FileFormat = 17
+)
+
+func (f FileFormat) String() string {
+	switch f {
+	case FormatMPEG:
+		return "MPEG"
+	case FormatMP4:
+		return "MP4"
+	case FormatFLAC:
+		return "FLAC"
+	case FormatOggVorbis:
+		return "Ogg Vorbis"
+	case FormatOggOpus:
+		return "Ogg Opus"
+	case FormatOggFLAC:
+		return "Ogg FLAC"
+	case FormatOggSpeex:
+		return "Ogg Speex"
+	case FormatWAV:
+		return "WAV"
+	case FormatAIFF:
+		return "AIFF"
+	case FormatASF:
+		return "ASF"
+	case FormatAPE:
+		return "APE"
+	case FormatWavPack:
+		return "WavPack"
+	case FormatDSF:
+		return "DSF"
+	case FormatDSDIFF:
+		return "DSDIFF"
+	case FormatTrueAudio:
+		return "TrueAudio"
+	case FormatMPC:
+		return "MPC"
+	case FormatShorten:
+		return "Shorten"
+	default:
+		return "Unknown"
+	}
+}
+
+// File represents an open audio file handle for efficient multiple operations.
+// Use [Open] or [OpenReadOnly] to create a File, and always call [File.Close] when done.
+type File struct {
+	mod    module
+	handle uint32
+	format FileFormat
+}
+
+// Open opens an audio file for reading and writing.
+// The returned File must be closed with [File.Close] when done.
+func Open(path string) (*File, error) {
+	return openFile(path, false)
+}
+
+// OpenReadOnly opens an audio file for reading only.
+// The returned File must be closed with [File.Close] when done.
+func OpenReadOnly(path string) (*File, error) {
+	return openFile(path, true)
+}
+
+func openFile(path string, readOnly bool) (*File, error) {
+	var err error
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("make path abs: %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	var mod module
+	if readOnly {
+		mod, err = newModuleRO(dir)
+	} else {
+		mod, err = newModule(dir)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("init module: %w", err)
+	}
+
+	var result wasmOpenResult
+	if err := mod.call("taglib_file_open", &result, wasmString(wasmPath(path))); err != nil {
+		mod.close()
+		return nil, fmt.Errorf("call: %w", err)
+	}
+	if result.handle == 0 {
+		mod.close()
+		return nil, ErrInvalidFile
+	}
+
+	return &File{
+		mod:    mod,
+		handle: result.handle,
+		format: FileFormat(result.format),
+	}, nil
+}
+
+// Close releases the file handle and associated resources.
+// After Close is called, the File should not be used.
+func (f *File) Close() error {
+	if f.handle == 0 {
+		return nil
+	}
+	var out wasmBool
+	_ = f.mod.call("taglib_file_close", &out, wasmUint32(f.handle))
+	f.handle = 0
+	f.mod.close()
+	return nil
+}
+
+// Format returns the detected audio file format.
+func (f *File) Format() FileFormat {
+	return f.format
+}
+
+// Tags reads all normalized metadata tags from the file.
+func (f *File) Tags() map[string][]string {
+	var raw wasmStrings
+	if err := f.mod.call("taglib_handle_tags", &raw, wasmUint32(f.handle)); err != nil {
+		return nil
+	}
+	if raw == nil {
+		return nil
+	}
+
+	tags := map[string][]string{}
+	for _, row := range raw {
+		k, v, ok := strings.Cut(row, "\t")
+		if !ok {
+			continue
+		}
+		tags[k] = append(tags[k], v)
+	}
+	return tags
+}
+
+// RawTags reads format-specific tags from the file.
+// For MP3/WAV/AIFF: returns ID3v2 frames
+// For MP4: returns MP4 atoms
+// For ASF: returns ASF attributes
+// For other formats (FLAC, OGG, etc.): returns same as Tags() (Vorbis Comments)
+func (f *File) RawTags() map[string][]string {
+	var raw wasmStrings
+	if err := f.mod.call("taglib_handle_raw_tags", &raw, wasmUint32(f.handle)); err != nil {
+		return nil
+	}
+	if raw == nil {
+		return nil
+	}
+
+	tags := map[string][]string{}
+	for _, row := range raw {
+		k, v, ok := strings.Cut(row, "\t")
+		if !ok {
+			continue
+		}
+		tags[k] = append(tags[k], v)
+	}
+	return tags
+}
+
+// AllTags contains both normalized and format-specific tags.
+type AllTags struct {
+	// Tags contains normalized tag keys (TITLE, ARTIST, etc.)
+	Tags map[string][]string
+	// Raw contains format-specific tags (ID3v2 frames, MP4 atoms, etc.)
+	Raw map[string][]string
+	// Format is the detected audio file format
+	Format FileFormat
+}
+
+// AllTags reads both normalized and format-specific tags in a single struct.
+func (f *File) AllTags() AllTags {
+	return AllTags{
+		Tags:   f.Tags(),
+		Raw:    f.RawTags(),
+		Format: f.format,
+	}
+}
+
+// Properties reads the audio properties from the file.
+func (f *File) Properties() Properties {
+	var raw wasmFileProperties
+	if err := f.mod.call("taglib_handle_properties", &raw, wasmUint32(f.handle)); err != nil {
+		return Properties{}
+	}
+
+	var images []ImageDesc
+	for _, row := range raw.imageDescs {
+		parts := strings.SplitN(row, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		images = append(images, ImageDesc{
+			Type:        parts[0],
+			Description: parts[1],
+			MIMEType:    parts[2],
+		})
+	}
+
+	return Properties{
+		Length:        time.Duration(raw.lengthInMilliseconds) * time.Millisecond,
+		Channels:      uint(raw.channels),
+		SampleRate:    uint(raw.sampleRate),
+		Bitrate:       uint(raw.bitrate),
+		BitsPerSample: uint(raw.bitsPerSample),
+		Images:        images,
+	}
+}
+
+// Image reads the embedded image at the specified index from the file.
+// Index 0 is the first image. Returns empty byte slice if index is out of range.
+func (f *File) Image(index int) ([]byte, error) {
+	var img wasmBytes
+	if err := f.mod.call("taglib_handle_image", &img, wasmUint32(f.handle), wasmInt(index)); err != nil {
+		return nil, fmt.Errorf("call: %w", err)
+	}
+	return img, nil
+}
+
+// WriteTags writes the metadata key-values pairs to the file.
+// The behavior can be controlled with [WriteOption].
+func (f *File) WriteTags(tags map[string][]string, opts WriteOption) error {
+	var raw []string
+	for k, vs := range tags {
+		raw = append(raw, fmt.Sprintf("%s\t%s", k, strings.Join(vs, "\v")))
+	}
+
+	var out wasmBool
+	if err := f.mod.call("taglib_handle_write_tags", &out, wasmUint32(f.handle), wasmStrings(raw), wasmUint8(opts)); err != nil {
+		return fmt.Errorf("call: %w", err)
+	}
+	if !out {
+		return ErrSavingFile
+	}
+	return nil
+}
+
+// WriteImage writes an image with custom metadata.
+// Index specifies which image slot to write to (0 = first image).
+// Set image to nil to clear the image at that index.
+func (f *File) WriteImage(image []byte, index int, imageType, description, mimeType string) error {
+	var out wasmBool
+	if err := f.mod.call("taglib_handle_write_image", &out, wasmUint32(f.handle), wasmBytes(image), wasmUint32(uint32(len(image))), wasmInt(index), wasmString(imageType), wasmString(description), wasmString(mimeType)); err != nil {
+		return fmt.Errorf("call: %w", err)
+	}
+	if !out {
+		return ErrSavingFile
+	}
+	return nil
+}
+
 // These constants define normalized tag keys used by TagLib's [property mapping].
 // When using [ReadTags], the library will map format-specific metadata to these standardized keys.
 // Similarly, [WriteTags] will map these keys back to the appropriate format-specific fields.
@@ -746,6 +1022,22 @@ func (f *wasmFileProperties) decode(m *module, val uint64) {
 	if imageMetadataPtr != 0 {
 		f.imageDescs = readStrings(m, imageMetadataPtr)
 	}
+}
+
+type wasmOpenResult struct {
+	handle uint32
+	format uint8
+}
+
+func (r *wasmOpenResult) decode(m *module, val uint64) {
+	if val == 0 {
+		return
+	}
+	ptr := uint32(val)
+
+	r.handle, _ = m.mod.Memory().ReadUint32Le(ptr)
+	format, _ := m.mod.Memory().ReadByte(ptr + 4)
+	r.format = format
 }
 
 func (m *module) call(name string, dest wasmResult, args ...wasmArg) error {
