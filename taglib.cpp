@@ -259,14 +259,33 @@ taglib_file_write_image(const char *filename, const char *buf, uint32_t length,
 
 __attribute__((export_name("taglib_file_id3v2_frames"))) char **
 taglib_file_id3v2_frames(const char *filename) {
-  // First check if this is an MP3 file with ID3v2 tags
+  // Check if file has ID3v2 tags (supports MP3, WAV, AIFF)
   TagLib::FileRef fileRef(filename);
   if (fileRef.isNull())
     return nullptr;
 
-  // Try to cast to MPEG::File
-  TagLib::MPEG::File *mpegFile = dynamic_cast<TagLib::MPEG::File *>(fileRef.file());
-  if (!mpegFile || !mpegFile->hasID3v2Tag()) {
+  TagLib::ID3v2::Tag *id3v2Tag = nullptr;
+
+  // Try MP3 first
+  if (TagLib::MPEG::File *mpegFile = dynamic_cast<TagLib::MPEG::File *>(fileRef.file())) {
+    if (mpegFile->hasID3v2Tag()) {
+      id3v2Tag = mpegFile->ID3v2Tag();
+    }
+  }
+  // Try WAV
+  else if (TagLib::RIFF::WAV::File *wavFile = dynamic_cast<TagLib::RIFF::WAV::File *>(fileRef.file())) {
+    if (wavFile->hasID3v2Tag()) {
+      id3v2Tag = wavFile->ID3v2Tag();
+    }
+  }
+  // Try AIFF
+  else if (TagLib::RIFF::AIFF::File *aiffFile = dynamic_cast<TagLib::RIFF::AIFF::File *>(fileRef.file())) {
+    if (aiffFile->hasID3v2Tag()) {
+      id3v2Tag = aiffFile->tag();
+    }
+  }
+
+  if (!id3v2Tag) {
     // Return empty array instead of nullptr when there are no ID3v2 tags
     char **emptyFrames = static_cast<char **>(malloc(sizeof(char *)));
     if (!emptyFrames)
@@ -274,8 +293,6 @@ taglib_file_id3v2_frames(const char *filename) {
     emptyFrames[0] = nullptr;
     return emptyFrames;
   }
-
-  TagLib::ID3v2::Tag *id3v2Tag = mpegFile->ID3v2Tag();
   const TagLib::ID3v2::FrameListMap &frameListMap = id3v2Tag->frameListMap();
 
   // Count total number of frames

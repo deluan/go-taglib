@@ -168,7 +168,8 @@ func ReadTags(path string) (map[string][]string, error) {
 	return tags, nil
 }
 
-// ReadID3v2Frames reads all ID3v2 frames from an MP3 file at the given path.
+// ReadID3v2Frames reads all ID3v2 frames from an audio file at the given path.
+// Supported formats: MP3, WAV, and AIFF.
 // This provides direct access to the raw ID3v2 frames, including custom frames like TXXX.
 // The returned map has frame IDs as keys (like "TIT2", "TPE1", "TXXX") and frame data as values.
 // For TXXX frames, the description is included in the key as "TXXX:description".

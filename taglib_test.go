@@ -442,7 +442,7 @@ func TestReadID3v2FramesEmpty(t *testing.T) {
 func TestReadID3v2FramesNonMP3(t *testing.T) {
 	t.Parallel()
 
-	// ID3v2 is specific to MP3, so non-MP3 files should return empty frames
+	// ID3v2 is supported in MP3, WAV, and AIFF - but FLAC doesn't use it
 	path := tmpf(t, egFLAC, "eg.flac")
 
 	frames, err := taglib.ReadID3v2Frames(path)
@@ -451,6 +451,45 @@ func TestReadID3v2FramesNonMP3(t *testing.T) {
 	// FLAC doesn't use ID3v2, should return empty map
 	if len(frames) != 0 {
 		t.Errorf("expected empty frames for FLAC, got %d", len(frames))
+	}
+}
+
+func TestReadID3v2FramesAIFF(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egAIFF, "eg.aiff")
+
+	// AIFF files can contain ID3v2 tags - our test file has them
+	frames, err := taglib.ReadID3v2Frames(path)
+	nilErr(t, err)
+
+	// Check that we got some frames from the AIFF file
+	if _, ok := frames["TIT2"]; !ok {
+		t.Error("expected TIT2 frame in AIFF file")
+	}
+	if _, ok := frames["TPE1"]; !ok {
+		t.Error("expected TPE1 frame in AIFF file")
+	}
+}
+
+func TestReadID3v2FramesWAV(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egWAV, "eg.wav")
+
+	// WAV files can contain ID3v2 tags - our test file has them (written by mutagen)
+	frames, err := taglib.ReadID3v2Frames(path)
+	nilErr(t, err)
+
+	// Check that we got some frames from the WAV file
+	if _, ok := frames["TIT2"]; !ok {
+		t.Error("expected TIT2 frame in WAV file")
+	}
+	if _, ok := frames["TPE1"]; !ok {
+		t.Error("expected TPE1 frame in WAV file")
+	}
+	if _, ok := frames["TALB"]; !ok {
+		t.Error("expected TALB frame in WAV file")
 	}
 }
 
@@ -949,6 +988,8 @@ var (
 	egOgg []byte
 	//go:embed testdata/eg.wav
 	egWAV []byte
+	//go:embed testdata/eg.aiff
+	egAIFF []byte
 	//go:embed testdata/eg.wma
 	egWMA []byte
 	//go:embed testdata/cover.jpg
@@ -964,6 +1005,7 @@ func testPaths(t testing.TB) []string {
 		tmpf(t, egM4a, "eg.m4a"),
 		tmpf(t, egWAV, "eg.wav"),
 		tmpf(t, egOgg, "eg.ogg"),
+		tmpf(t, egAIFF, "eg.aiff"),
 	}
 }
 
