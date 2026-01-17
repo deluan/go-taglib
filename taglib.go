@@ -168,6 +168,82 @@ func ReadTags(path string) (map[string][]string, error) {
 	return tags, nil
 }
 
+// ReadID3v2Frames reads all ID3v2 frames from an MP3 file at the given path.
+// This provides direct access to the raw ID3v2 frames, including custom frames like TXXX.
+// The returned map has frame IDs as keys (like "TIT2", "TPE1", "TXXX") and frame data as values.
+// For TXXX frames, the description is included in the key as "TXXX:description".
+func ReadID3v2Frames(path string) (map[string][]string, error) {
+	var err error
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("make path abs %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	mod, err := newModuleRO(dir)
+	if err != nil {
+		return nil, fmt.Errorf("init module: %w", err)
+	}
+	defer mod.close()
+
+	var raw wasmStrings
+	if err := mod.call("taglib_file_id3v2_frames", &raw, wasmString(wasmPath(path))); err != nil {
+		return nil, fmt.Errorf("call: %w", err)
+	}
+	if raw == nil {
+		return nil, ErrInvalidFile
+	}
+
+	// If raw is empty, the file has no ID3v2 frames
+	var frames = map[string][]string{}
+	for _, row := range raw {
+		parts := strings.SplitN(row, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		frames[parts[0]] = append(frames[parts[0]], parts[1])
+	}
+	return frames, nil
+}
+
+// ReadID3v1Frames reads all ID3v1 tags from an MP3 file at the given path.
+// This provides access to the standard ID3v1 fields: title, artist, album, year, comment, track, and genre.
+// The returned map has standardized keys (like "TITLE", "ARTIST", "ALBUM") and values.
+// Note that ID3v1 is a much simpler format than ID3v2 with a fixed set of fields.
+func ReadID3v1Frames(path string) (map[string][]string, error) {
+	var err error
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("make path abs %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	mod, err := newModuleRO(dir)
+	if err != nil {
+		return nil, fmt.Errorf("init module: %w", err)
+	}
+	defer mod.close()
+
+	var raw wasmStrings
+	if err := mod.call("taglib_file_id3v1_tags", &raw, wasmString(wasmPath(path))); err != nil {
+		return nil, fmt.Errorf("call: %w", err)
+	}
+	if raw == nil {
+		return nil, ErrInvalidFile
+	}
+
+	// If raw is empty, the file has no ID3v1 tags
+	var frames = map[string][]string{}
+	for _, row := range raw {
+		parts := strings.SplitN(row, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		frames[parts[0]] = append(frames[parts[0]], parts[1])
+	}
+	return frames, nil
+}
+
 // Properties contains the audio properties of a media file.
 type Properties struct {
 	// Length is the duration of the audio
@@ -269,6 +345,41 @@ func WriteTags(path string, tags map[string][]string, opts WriteOption) error {
 	if !out {
 		return ErrSavingFile
 	}
+	return nil
+}
+
+// WriteID3v2Frames writes ID3v2 frames to an MP3 file at the given path.
+// This provides direct access to modify raw ID3v2 frames, including custom frames like TXXX.
+// The map should have frame IDs as keys (like "TIT2", "TPE1", "TXXX") and frame data as values.
+// The opts parameter can include taglib.Clear to remove all existing frames not in the new map.
+func WriteID3v2Frames(path string, frames map[string][]string, opts WriteOption) error {
+	var err error
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("make path abs %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	mod, err := newModule(dir)
+	if err != nil {
+		return fmt.Errorf("init module: %w", err)
+	}
+	defer mod.close()
+
+	// Convert the frames map to a slice of strings
+	var framesList []string
+	for k, vs := range frames {
+		framesList = append(framesList, fmt.Sprintf("%s\t%s", k, strings.Join(vs, "\v")))
+	}
+
+	var out wasmBool
+	if err := mod.call("taglib_file_write_id3v2_frames", &out, wasmString(wasmPath(path)), wasmStrings(framesList), wasmUint8(opts)); err != nil {
+		return fmt.Errorf("call: %w", err)
+	}
+	if !out {
+		return ErrSavingFile
+	}
+
 	return nil
 }
 
