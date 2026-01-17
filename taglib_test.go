@@ -231,6 +231,7 @@ func TestProperties(t *testing.T) {
 	eq(t, 1460, properties.Bitrate)
 	eq(t, 48_000, properties.SampleRate)
 	eq(t, 2, properties.Channels)
+	eq(t, 24, properties.BitsPerSample) // FLAC test file uses 24-bit
 
 	eq(t, len(properties.Images), 2)
 	eq(t, properties.Images[0].Type, "Front Cover")
@@ -239,6 +240,32 @@ func TestProperties(t *testing.T) {
 	eq(t, properties.Images[1].Type, "Lead Artist")
 	eq(t, properties.Images[1].Description, "The second image")
 	eq(t, properties.Images[1].MIMEType, "image/jpeg")
+}
+
+func TestPropertiesBitsPerSample(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		data          []byte
+		filename      string
+		bitsPerSample uint
+	}{
+		{"FLAC", egFLAC, "eg.flac", 24},
+		{"WAV", egWAV, "eg.wav", 16},
+		{"M4A", egM4a, "eg.m4a", 16},    // AAC in M4A container
+		{"MP3", egMP3, "eg.mp3", 0},     // MP3 doesn't support BitsPerSample
+		{"OGG", egOgg, "eg.ogg", 0},     // Vorbis doesn't support BitsPerSample
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := tmpf(t, tt.data, tt.filename)
+			properties, err := taglib.ReadProperties(path)
+			nilErr(t, err)
+			eq(t, tt.bitsPerSample, properties.BitsPerSample)
+		})
+	}
 }
 
 func TestMultiOpen(t *testing.T) {

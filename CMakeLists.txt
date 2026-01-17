@@ -21,6 +21,13 @@ include_directories(
   taglib/taglib/ogg/flac
   taglib/taglib/flac
   taglib/taglib/mp4
+  taglib/taglib/riff
+  taglib/taglib/riff/aiff
+  taglib/taglib/riff/wav
+  taglib/taglib/ape
+  taglib/taglib/asf
+  taglib/taglib/wavpack
+  taglib/taglib/dsf
 )
 
 add_executable(taglib taglib.cpp)

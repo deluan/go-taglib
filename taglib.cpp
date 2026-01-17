@@ -16,6 +16,17 @@
 #include "mp4/mp4file.h"
 #include "mp4/mp4tag.h"
 #include "mp4/mp4item.h"
+#include "flac/flacfile.h"
+#include "flac/flacproperties.h"
+#include "mp4/mp4properties.h"
+#include "riff/aiff/aifffile.h"
+#include "riff/aiff/aiffproperties.h"
+#include "riff/wav/wavfile.h"
+#include "riff/wav/wavproperties.h"
+#include "ape/apeproperties.h"
+#include "asf/asfproperties.h"
+#include "wavpack/wavpackproperties.h"
+#include "dsf/dsfproperties.h"
 
 char *to_char_array(const TagLib::String &s) {
   const std::string str = s.to8Bit(true);
@@ -94,6 +105,7 @@ struct FileProperties {
   uint32_t channels;
   uint32_t sampleRate;
   uint32_t bitrate;
+  uint32_t bitsPerSample;
   char **imageMetadata;
 };
 
@@ -113,6 +125,26 @@ taglib_file_read_properties(const char *filename) {
   props->channels = audioProperties->channels();
   props->sampleRate = audioProperties->sampleRate();
   props->bitrate = audioProperties->bitrate();
+
+  // Extract bits per sample for supported formats
+  int bitsPerSample = 0;
+  if (const auto* apeProperties = dynamic_cast<const TagLib::APE::Properties*>(audioProperties))
+    bitsPerSample = apeProperties->bitsPerSample();
+  else if (const auto* asfProperties = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties))
+    bitsPerSample = asfProperties->bitsPerSample();
+  else if (const auto* flacProperties = dynamic_cast<const TagLib::FLAC::Properties*>(audioProperties))
+    bitsPerSample = flacProperties->bitsPerSample();
+  else if (const auto* mp4Properties = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties))
+    bitsPerSample = mp4Properties->bitsPerSample();
+  else if (const auto* wavPackProperties = dynamic_cast<const TagLib::WavPack::Properties*>(audioProperties))
+    bitsPerSample = wavPackProperties->bitsPerSample();
+  else if (const auto* aiffProperties = dynamic_cast<const TagLib::RIFF::AIFF::Properties*>(audioProperties))
+    bitsPerSample = aiffProperties->bitsPerSample();
+  else if (const auto* wavProperties = dynamic_cast<const TagLib::RIFF::WAV::Properties*>(audioProperties))
+    bitsPerSample = wavProperties->bitsPerSample();
+  else if (const auto* dsfProperties = dynamic_cast<const TagLib::DSF::Properties*>(audioProperties))
+    bitsPerSample = dsfProperties->bitsPerSample();
+  props->bitsPerSample = bitsPerSample > 0 ? bitsPerSample : 0;
 
   const auto &pictures = file.complexProperties("PICTURE");
 

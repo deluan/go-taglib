@@ -294,6 +294,8 @@ type Properties struct {
 	SampleRate uint
 	// Bitrate in kbit/s
 	Bitrate uint
+	// BitsPerSample is the bit depth (e.g., 16, 24, 32). May be 0 for formats that don't support this.
+	BitsPerSample uint
 	// Images contains metadata about all embedded images
 	Images []ImageDesc
 }
@@ -342,11 +344,12 @@ func ReadProperties(path string) (Properties, error) {
 	}
 
 	return Properties{
-		Length:     time.Duration(raw.lengthInMilliseconds) * time.Millisecond,
-		Channels:   uint(raw.channels),
-		SampleRate: uint(raw.sampleRate),
-		Bitrate:    uint(raw.bitrate),
-		Images:     images,
+		Length:        time.Duration(raw.lengthInMilliseconds) * time.Millisecond,
+		Channels:      uint(raw.channels),
+		SampleRate:    uint(raw.sampleRate),
+		Bitrate:       uint(raw.bitrate),
+		BitsPerSample: uint(raw.bitsPerSample),
+		Images:        images,
 	}, nil
 }
 
@@ -683,6 +686,7 @@ type wasmFileProperties struct {
 	channels             uint32
 	sampleRate           uint32
 	bitrate              uint32
+	bitsPerSample        uint32
 	imageDescs           []string
 }
 
@@ -696,8 +700,9 @@ func (f *wasmFileProperties) decode(m *module, val uint64) {
 	f.channels, _ = m.mod.Memory().ReadUint32Le(ptr + 4)
 	f.sampleRate, _ = m.mod.Memory().ReadUint32Le(ptr + 8)
 	f.bitrate, _ = m.mod.Memory().ReadUint32Le(ptr + 12)
+	f.bitsPerSample, _ = m.mod.Memory().ReadUint32Le(ptr + 16)
 
-	imageMetadataPtr, _ := m.mod.Memory().ReadUint32Le(ptr + 16)
+	imageMetadataPtr, _ := m.mod.Memory().ReadUint32Le(ptr + 20)
 	if imageMetadataPtr != 0 {
 		f.imageDescs = readStrings(m, imageMetadataPtr)
 	}
