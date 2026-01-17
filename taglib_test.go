@@ -487,6 +487,132 @@ func TestReadID3v1FramesNonMP3(t *testing.T) {
 	}
 }
 
+func TestReadMP4Atoms(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egM4a, "eg.m4a")
+
+	// First write some tags using WriteTags so we have MP4 data
+	err := taglib.WriteTags(path, map[string][]string{
+		"TITLE":       {"Test Title"},
+		"ARTIST":      {"Test Artist"},
+		"ALBUM":       {"Test Album"},
+		"TRACKNUMBER": {"3"},
+	}, taglib.Clear)
+	nilErr(t, err)
+
+	// Now read the MP4 atoms directly
+	atoms, err := taglib.ReadMP4Atoms(path)
+	nilErr(t, err)
+
+	// Should have atoms
+	if len(atoms) == 0 {
+		t.Fatal("expected some MP4 atoms")
+	}
+
+	// Check that we got ©nam (title), ©ART (artist), ©alb (album) atoms
+	if _, ok := atoms["©nam"]; !ok {
+		t.Error("expected ©nam atom for title")
+	}
+	if _, ok := atoms["©ART"]; !ok {
+		t.Error("expected ©ART atom for artist")
+	}
+	if _, ok := atoms["©alb"]; !ok {
+		t.Error("expected ©alb atom for album")
+	}
+}
+
+func TestReadMP4AtomsEmpty(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egM4a, "eg.m4a")
+
+	// Clear all tags first
+	err := taglib.WriteTags(path, nil, taglib.Clear)
+	nilErr(t, err)
+
+	// Read MP4 atoms from a file with no tags - should return empty map, not error
+	atoms, err := taglib.ReadMP4Atoms(path)
+	nilErr(t, err)
+
+	// Should be empty or have no meaningful atoms
+	if atoms == nil {
+		t.Fatal("expected non-nil map")
+	}
+}
+
+func TestReadMP4AtomsNonM4A(t *testing.T) {
+	t.Parallel()
+
+	// MP4 atoms are specific to M4A/MP4, so non-M4A files should return empty atoms
+	path := tmpf(t, egFLAC, "eg.flac")
+
+	atoms, err := taglib.ReadMP4Atoms(path)
+	nilErr(t, err)
+
+	// FLAC doesn't use MP4 atoms, should return empty map
+	if len(atoms) != 0 {
+		t.Errorf("expected empty atoms for FLAC, got %d", len(atoms))
+	}
+}
+
+func TestReadMP4AtomsInvalid(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, []byte("not a file"), "invalid.m4a")
+
+	atoms, err := taglib.ReadMP4Atoms(path)
+	// Invalid file should return ErrInvalidFile (nil atoms from WASM)
+	if err == nil && atoms != nil && len(atoms) > 0 {
+		t.Error("expected error or empty atoms for invalid file")
+	}
+}
+
+func TestReadMP4AtomsIntPair(t *testing.T) {
+	t.Parallel()
+
+	path := tmpf(t, egM4a, "eg.m4a")
+
+	// Write track and disc numbers
+	// Note: TagLib's property mapping stores TRACKNUMBER in trkn:num but TRACKTOTAL
+	// goes to a free-form atom, so trkn:total will be 0. This test verifies the
+	// IntPair splitting works correctly for the values that are present.
+	err := taglib.WriteTags(path, map[string][]string{
+		"TRACKNUMBER": {"3"},
+		"DISCNUMBER":  {"1"},
+	}, taglib.Clear)
+	nilErr(t, err)
+
+	// Read MP4 atoms
+	atoms, err := taglib.ReadMP4Atoms(path)
+	nilErr(t, err)
+
+	// Track number should be split into trkn:num and trkn:total
+	if num, ok := atoms["trkn:num"]; ok {
+		eq(t, num[0], "3")
+	} else {
+		t.Error("expected trkn:num atom")
+	}
+	// trkn:total will be 0 since TagLib stores TRACKTOTAL separately
+	if total, ok := atoms["trkn:total"]; ok {
+		eq(t, total[0], "0")
+	} else {
+		t.Error("expected trkn:total atom")
+	}
+
+	// Disc number should be split into disk:num and disk:total
+	if num, ok := atoms["disk:num"]; ok {
+		eq(t, num[0], "1")
+	} else {
+		t.Error("expected disk:num atom")
+	}
+	if total, ok := atoms["disk:total"]; ok {
+		eq(t, total[0], "0")
+	} else {
+		t.Error("expected disk:total atom")
+	}
+}
+
 func TestReadID3v1FramesInvalid(t *testing.T) {
 	t.Parallel()
 

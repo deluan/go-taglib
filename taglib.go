@@ -244,6 +244,46 @@ func ReadID3v1Frames(path string) (map[string][]string, error) {
 	return frames, nil
 }
 
+// ReadMP4Atoms reads all MP4 atoms from an M4A/MP4 file at the given path.
+// This provides direct access to the raw MP4 atoms/items, including standard atoms like ©ART (artist),
+// ©alb (album), trkn (track number), etc.
+// The returned map has atom names as keys and atom data as values.
+// For IntPair atoms (like trkn, disk), values are split into separate keys with :num and :total suffixes.
+// For example, track 3 of 12 returns as "trkn:num" -> ["3"] and "trkn:total" -> ["12"].
+func ReadMP4Atoms(path string) (map[string][]string, error) {
+	var err error
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("make path abs %w", err)
+	}
+
+	dir := filepath.Dir(path)
+	mod, err := newModuleRO(dir)
+	if err != nil {
+		return nil, fmt.Errorf("init module: %w", err)
+	}
+	defer mod.close()
+
+	var raw wasmStrings
+	if err := mod.call("taglib_file_mp4_atoms", &raw, wasmString(wasmPath(path))); err != nil {
+		return nil, fmt.Errorf("call: %w", err)
+	}
+	if raw == nil {
+		return nil, ErrInvalidFile
+	}
+
+	// If raw is empty, the file has no MP4 atoms
+	var atoms = map[string][]string{}
+	for _, row := range raw {
+		parts := strings.SplitN(row, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		atoms[parts[0]] = append(atoms[parts[0]], parts[1])
+	}
+	return atoms, nil
+}
+
 // Properties contains the audio properties of a media file.
 type Properties struct {
 	// Length is the duration of the audio

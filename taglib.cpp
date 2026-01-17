@@ -13,6 +13,9 @@
 #include "mpeg/id3v2/frames/popularimeterframe.h"
 #include "mpeg/id3v2/frames/unsynchronizedlyricsframe.h"
 #include "mpeg/id3v2/frames/synchronizedlyricsframe.h"
+#include "mp4/mp4file.h"
+#include "mp4/mp4tag.h"
+#include "mp4/mp4item.h"
 
 char *to_char_array(const TagLib::String &s) {
   const std::string str = s.to8Bit(true);
@@ -417,6 +420,123 @@ taglib_file_id3v1_tags(const char *filename) {
 
   tags[i] = nullptr;
   return tags;
+}
+
+__attribute__((export_name("taglib_file_mp4_atoms"))) char **
+taglib_file_mp4_atoms(const char *filename) {
+  TagLib::FileRef fileRef(filename);
+  if (fileRef.isNull())
+    return nullptr;
+
+  // Try to cast to MP4::File
+  TagLib::MP4::File *mp4File = dynamic_cast<TagLib::MP4::File *>(fileRef.file());
+  if (!mp4File || !mp4File->hasMP4Tag()) {
+    // Return empty array instead of nullptr when there are no MP4 atoms
+    char **emptyAtoms = static_cast<char **>(malloc(sizeof(char *)));
+    if (!emptyAtoms)
+      return nullptr;
+    emptyAtoms[0] = nullptr;
+    return emptyAtoms;
+  }
+
+  TagLib::MP4::Tag *mp4Tag = mp4File->tag();
+  const TagLib::MP4::ItemMap &itemMap = mp4Tag->itemMap();
+
+  // First pass: count total entries (multi-value items count as multiple)
+  size_t atomCount = 0;
+  for (auto it = itemMap.begin(); it != itemMap.end(); ++it) {
+    TagLib::MP4::Item item = it->second;
+    switch (item.type()) {
+      case TagLib::MP4::Item::Type::StringList:
+        atomCount += item.toStringList().size();
+        break;
+      case TagLib::MP4::Item::Type::IntPair:
+        atomCount += 2; // num and total as separate keys
+        break;
+      default:
+        atomCount++;
+        break;
+    }
+  }
+
+  if (atomCount == 0) {
+    char **emptyAtoms = static_cast<char **>(malloc(sizeof(char *)));
+    if (!emptyAtoms)
+      return nullptr;
+    emptyAtoms[0] = nullptr;
+    return emptyAtoms;
+  }
+
+  char **atoms = static_cast<char **>(malloc(sizeof(char *) * (atomCount + 1)));
+  if (!atoms)
+    return nullptr;
+
+  size_t i = 0;
+  for (auto it = itemMap.begin(); it != itemMap.end(); ++it) {
+    TagLib::String key = it->first;
+    TagLib::MP4::Item item = it->second;
+
+    switch (item.type()) {
+      case TagLib::MP4::Item::Type::Bool: {
+        TagLib::String value = item.toBool() ? "1" : "0";
+        TagLib::String row = key + "\t" + value;
+        atoms[i++] = to_char_array(row);
+        break;
+      }
+      case TagLib::MP4::Item::Type::Int: {
+        TagLib::String value = TagLib::String::number(item.toInt());
+        TagLib::String row = key + "\t" + value;
+        atoms[i++] = to_char_array(row);
+        break;
+      }
+      case TagLib::MP4::Item::Type::IntPair: {
+        auto pair = item.toIntPair();
+        TagLib::String numRow = key + ":num\t" + TagLib::String::number(pair.first);
+        TagLib::String totalRow = key + ":total\t" + TagLib::String::number(pair.second);
+        atoms[i++] = to_char_array(numRow);
+        atoms[i++] = to_char_array(totalRow);
+        break;
+      }
+      case TagLib::MP4::Item::Type::Byte: {
+        TagLib::String value = TagLib::String::number(item.toByte());
+        TagLib::String row = key + "\t" + value;
+        atoms[i++] = to_char_array(row);
+        break;
+      }
+      case TagLib::MP4::Item::Type::UInt: {
+        TagLib::String value = TagLib::String::number(item.toUInt());
+        TagLib::String row = key + "\t" + value;
+        atoms[i++] = to_char_array(row);
+        break;
+      }
+      case TagLib::MP4::Item::Type::LongLong: {
+        TagLib::String value = TagLib::String::number(item.toLongLong());
+        TagLib::String row = key + "\t" + value;
+        atoms[i++] = to_char_array(row);
+        break;
+      }
+      case TagLib::MP4::Item::Type::StringList: {
+        TagLib::StringList sl = item.toStringList();
+        for (const auto &s : sl) {
+          TagLib::String row = key + "\t" + s;
+          atoms[i++] = to_char_array(row);
+        }
+        break;
+      }
+      case TagLib::MP4::Item::Type::CoverArtList:
+      case TagLib::MP4::Item::Type::ByteVectorList: {
+        // Include binary data atoms with empty value (like ID3v2 does for APIC)
+        TagLib::String row = key + "\t";
+        atoms[i++] = to_char_array(row);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  atoms[i] = nullptr;
+  return atoms;
 }
 
 __attribute__((export_name("taglib_file_write_id3v2_frames"))) bool
