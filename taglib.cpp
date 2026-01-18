@@ -5,6 +5,7 @@
 #include <map>
 
 #include "fileref.h"
+#include "tiostream.h"
 #include "tpropertymap.h"
 #include "mpeg/mpegfile.h"
 #include "mpeg/id3v1/id3v1tag.h"
@@ -66,12 +67,122 @@ enum FileFormat : uint8_t {
   FORMAT_SHORTEN = 17,
 };
 
+// ============================================================================
+// Host function imports (implemented in Go, called from WASM)
+// ============================================================================
+
+extern "C" {
+  // Read up to 'length' bytes from stream 'streamId' into buffer at 'bufPtr'.
+  // Returns number of bytes actually read.
+  __attribute__((import_module("go_io"), import_name("stream_read")))
+  uint32_t go_stream_read(uint32_t streamId, uint32_t bufPtr, uint32_t length);
+
+  // Seek to position in stream. whence: 0=Beginning, 1=Current, 2=End
+  // Returns 0 on success, non-zero on error.
+  __attribute__((import_module("go_io"), import_name("stream_seek")))
+  int32_t go_stream_seek(uint32_t streamId, int64_t offset, int32_t whence);
+
+  // Returns current position in stream.
+  __attribute__((import_module("go_io"), import_name("stream_tell")))
+  int64_t go_stream_tell(uint32_t streamId);
+
+  // Returns total length of stream.
+  __attribute__((import_module("go_io"), import_name("stream_length")))
+  int64_t go_stream_length(uint32_t streamId);
+}
+
+// ============================================================================
+// GoIOStream - IOStream implementation backed by Go io.ReadSeeker
+// ============================================================================
+
+class GoIOStream : public TagLib::IOStream {
+public:
+  GoIOStream(uint32_t streamId) : m_streamId(streamId), m_readOnly(true) {}
+
+  TagLib::FileName name() const override {
+    return "";
+  }
+
+  TagLib::ByteVector readBlock(size_t length) override {
+    if (length == 0) {
+      return TagLib::ByteVector();
+    }
+
+    // Allocate buffer in WASM memory
+    char *buf = static_cast<char *>(malloc(length));
+    if (!buf) {
+      return TagLib::ByteVector();
+    }
+
+    // Call Go to read into buffer
+    uint32_t bytesRead = go_stream_read(m_streamId, reinterpret_cast<uint32_t>(buf), static_cast<uint32_t>(length));
+
+    TagLib::ByteVector result(buf, bytesRead);
+    free(buf);
+    return result;
+  }
+
+  void writeBlock(const TagLib::ByteVector &data) override {
+    // Read-only for now
+  }
+
+  void insert(const TagLib::ByteVector &data, TagLib::offset_t start, size_t replace) override {
+    // Read-only for now
+  }
+
+  void removeBlock(TagLib::offset_t start, size_t length) override {
+    // Read-only for now
+  }
+
+  bool readOnly() const override {
+    return m_readOnly;
+  }
+
+  bool isOpen() const override {
+    return true;
+  }
+
+  void seek(TagLib::offset_t offset, Position p = Beginning) override {
+    int32_t whence = 0;
+    switch (p) {
+      case Beginning: whence = 0; break;
+      case Current:   whence = 1; break;
+      case End:       whence = 2; break;
+    }
+    go_stream_seek(m_streamId, offset, whence);
+  }
+
+  void clear() override {
+    // Nothing to do
+  }
+
+  TagLib::offset_t tell() const override {
+    return go_stream_tell(m_streamId);
+  }
+
+  TagLib::offset_t length() override {
+    return go_stream_length(m_streamId);
+  }
+
+  void truncate(TagLib::offset_t length) override {
+    // Read-only for now
+  }
+
+private:
+  uint32_t m_streamId;
+  bool m_readOnly;
+};
+
 // Handle management
 struct FileHandle {
   TagLib::FileRef *fileRef;
+  GoIOStream *stream;  // non-null if opened from stream
   FileFormat format;
 };
 
+// ============================================================================
+// Global handle map and utilities
+// ============================================================================
 static std::map<uint32_t, FileHandle> g_handles;
 static uint32_t g_nextHandle = 1;
 
@@ -136,7 +247,7 @@ taglib_file_open(const char *filename) {
   uint32_t handle = g_nextHandle++;
   FileFormat format = detectFormat(fileRef->file());
 
-  g_handles[handle] = FileHandle{fileRef, format};
+  g_handles[handle] = FileHandle{fileRef, nullptr, format};
 
   result->handle = handle;
   result->format = static_cast<uint8_t>(format);
@@ -148,8 +259,42 @@ taglib_file_close(uint32_t handle) {
   auto it = g_handles.find(handle);
   if (it != g_handles.end()) {
     delete it->second.fileRef;
+    if (it->second.stream) {
+      delete it->second.stream;
+    }
     g_handles.erase(it);
   }
+}
+
+// Open a file from a Go io.ReadSeeker stream
+__attribute__((export_name("taglib_stream_open"))) OpenResult *
+taglib_stream_open(uint32_t streamId) {
+  GoIOStream *stream = new GoIOStream(streamId);
+
+  // FileRef takes ownership of the stream pointer for file operations
+  // but does NOT delete it - we manage it in FileHandle
+  TagLib::FileRef *fileRef = new TagLib::FileRef(stream);
+  if (fileRef->isNull()) {
+    delete fileRef;
+    delete stream;
+    return nullptr;
+  }
+
+  OpenResult *result = static_cast<OpenResult *>(malloc(sizeof(OpenResult)));
+  if (!result) {
+    delete fileRef;
+    delete stream;
+    return nullptr;
+  }
+
+  uint32_t handle = g_nextHandle++;
+  FileFormat format = detectFormat(fileRef->file());
+
+  g_handles[handle] = FileHandle{fileRef, stream, format};
+
+  result->handle = handle;
+  result->format = static_cast<uint8_t>(format);
+  return result;
 }
 
 // Helper to get FileRef from handle

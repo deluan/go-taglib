@@ -195,6 +195,99 @@ func TestReadExistingUnicode(t *testing.T) {
 	eq(t, tags[taglib.AlbumArtist][0], "Brian Eno—David Byrne")
 }
 
+func TestOpenStream(t *testing.T) {
+	t.Parallel()
+
+	paths := testPaths(t)
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			// Read the file into memory
+			data, err := os.ReadFile(path)
+			nilErr(t, err)
+
+			// Open via stream
+			r := bytes.NewReader(data)
+			f, err := taglib.OpenStream(r)
+			nilErr(t, err)
+			defer f.Close()
+
+			// Read tags via stream
+			streamTags := f.Tags()
+
+			// Read tags via file for comparison
+			fileTags, err := taglib.ReadTags(path)
+			nilErr(t, err)
+
+			// Compare tags
+			eq(t, len(fileTags), len(streamTags))
+			for k, v := range fileTags {
+				streamV, ok := streamTags[k]
+				if !ok {
+					t.Errorf("stream missing tag %q", k)
+					continue
+				}
+				if !slices.Equal(v, streamV) {
+					t.Errorf("tag %q: got %v, want %v", k, streamV, v)
+				}
+			}
+
+			// Test properties
+			streamProps := f.Properties()
+			fileProps, err := taglib.ReadProperties(path)
+			nilErr(t, err)
+
+			eq(t, fileProps.Length, streamProps.Length)
+			eq(t, fileProps.Channels, streamProps.Channels)
+			eq(t, fileProps.SampleRate, streamProps.SampleRate)
+			eq(t, fileProps.Bitrate, streamProps.Bitrate)
+
+			// Test format detection
+			if f.Format() == taglib.FormatUnknown {
+				t.Errorf("expected format to be detected, got Unknown")
+			}
+		})
+	}
+}
+
+func TestOpenStreamConcurrent(t *testing.T) {
+	t.Parallel()
+
+	paths := testPaths(t)
+
+	// Read all files into memory first
+	fileData := make([][]byte, len(paths))
+	for i, path := range paths {
+		data, err := os.ReadFile(path)
+		nilErr(t, err)
+		fileData[i] = data
+	}
+
+	c := 100
+	pathErrors := make([]error, c)
+
+	var wg sync.WaitGroup
+	for i := range c {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			data := fileData[i%len(fileData)]
+			r := bytes.NewReader(data)
+			f, err := taglib.OpenStream(r)
+			if err != nil {
+				pathErrors[i] = fmt.Errorf("iter %d: %w", i, err)
+				return
+			}
+			_ = f.Tags()
+			_ = f.Properties()
+			f.Close()
+		}()
+	}
+	wg.Wait()
+
+	err := errors.Join(pathErrors...)
+	nilErr(t, err)
+}
+
 func TestConcurrent(t *testing.T) {
 	t.Parallel()
 

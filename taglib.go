@@ -5,6 +5,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,9 +93,10 @@ func (f FileFormat) String() string {
 // File represents an open audio file handle for efficient multiple operations.
 // Use [Open] or [OpenReadOnly] to create a File, and always call [File.Close] when done.
 type File struct {
-	mod    module
-	handle uint32
-	format FileFormat
+	mod      module
+	handle   uint32
+	format   FileFormat
+	streamId uint32 // non-zero if opened via OpenStream
 }
 
 // Open opens an audio file for reading and writing.
@@ -107,6 +109,39 @@ func Open(path string) (*File, error) {
 // The returned File must be closed with [File.Close] when done.
 func OpenReadOnly(path string) (*File, error) {
 	return openFile(path, true)
+}
+
+// OpenStream opens an audio stream for reading metadata.
+// The reader must remain valid for the lifetime of the returned File.
+// The returned File must be closed with [File.Close] when done.
+// This is useful for reading from network streams, archives, or in-memory buffers.
+func OpenStream(r io.ReadSeeker) (*File, error) {
+	streamId := registerStream(r)
+
+	mod, err := newModuleForStream()
+	if err != nil {
+		unregisterStream(streamId)
+		return nil, fmt.Errorf("init module: %w", err)
+	}
+
+	var result wasmOpenResult
+	if err := mod.call("taglib_stream_open", &result, wasmUint32(streamId)); err != nil {
+		mod.close()
+		unregisterStream(streamId)
+		return nil, fmt.Errorf("call: %w", err)
+	}
+	if result.handle == 0 {
+		mod.close()
+		unregisterStream(streamId)
+		return nil, ErrInvalidFile
+	}
+
+	return &File{
+		mod:      mod,
+		handle:   result.handle,
+		format:   FileFormat(result.format),
+		streamId: streamId,
+	}, nil
 }
 
 func openFile(path string, readOnly bool) (*File, error) {
@@ -153,6 +188,10 @@ func (f *File) Close() error {
 	var out wasmBool
 	_ = f.mod.call("taglib_file_close", &out, wasmUint32(f.handle))
 	f.handle = 0
+	if f.streamId != 0 {
+		unregisterStream(f.streamId)
+		f.streamId = 0
+	}
 	f.mod.close()
 	return nil
 }
@@ -811,6 +850,95 @@ type rc struct {
 	wazero.CompiledModule
 }
 
+// Stream registry for io.ReadSeeker streams used by OpenStream
+var (
+	streamRegistry   = make(map[uint32]io.ReadSeeker)
+	streamRegistryMu sync.RWMutex
+	nextStreamId     uint32 = 1
+)
+
+func registerStream(r io.ReadSeeker) uint32 {
+	streamRegistryMu.Lock()
+	defer streamRegistryMu.Unlock()
+	id := nextStreamId
+	nextStreamId++
+	streamRegistry[id] = r
+	return id
+}
+
+func unregisterStream(id uint32) {
+	streamRegistryMu.Lock()
+	defer streamRegistryMu.Unlock()
+	delete(streamRegistry, id)
+}
+
+func getStream(id uint32) io.ReadSeeker {
+	streamRegistryMu.RLock()
+	defer streamRegistryMu.RUnlock()
+	return streamRegistry[id]
+}
+
+// Host functions called by WASM for stream I/O
+func hostStreamRead(_ context.Context, m api.Module, streamId, bufPtr, length uint32) uint32 {
+	r := getStream(streamId)
+	if r == nil {
+		return 0
+	}
+	buf := make([]byte, length)
+	n, err := r.Read(buf)
+	if err != nil && n == 0 {
+		return 0
+	}
+	if n > 0 {
+		m.Memory().Write(bufPtr, buf[:n])
+	}
+	return uint32(n)
+}
+
+func hostStreamSeek(_ context.Context, streamId uint32, offset int64, whence int32) int32 {
+	r := getStream(streamId)
+	if r == nil {
+		return -1
+	}
+	_, err := r.Seek(offset, int(whence))
+	if err != nil {
+		return -1
+	}
+	return 0
+}
+
+func hostStreamTell(_ context.Context, streamId uint32) int64 {
+	r := getStream(streamId)
+	if r == nil {
+		return -1
+	}
+	pos, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return -1
+	}
+	return pos
+}
+
+func hostStreamLength(_ context.Context, streamId uint32) int64 {
+	r := getStream(streamId)
+	if r == nil {
+		return -1
+	}
+	// Save current position
+	cur, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return -1
+	}
+	// Seek to end to get length
+	end, err := r.Seek(0, io.SeekEnd)
+	if err != nil {
+		return -1
+	}
+	// Restore position
+	_, _ = r.Seek(cur, io.SeekStart)
+	return end
+}
+
 var getRuntimeOnce = sync.OnceValues(func() (rc, error) {
 	ctx := context.Background()
 
@@ -830,6 +958,18 @@ var getRuntimeOnce = sync.OnceValues(func() (rc, error) {
 		NewHostModuleBuilder("env").
 		NewFunctionBuilder().WithFunc(func(int32) int32 { panic("__cxa_allocate_exception") }).Export("__cxa_allocate_exception").
 		NewFunctionBuilder().WithFunc(func(int32, int32, int32) { panic("__cxa_throw") }).Export("__cxa_throw").
+		Instantiate(ctx)
+	if err != nil {
+		return rc{}, err
+	}
+
+	// Register stream I/O host functions for OpenStream support
+	_, err = runtime.
+		NewHostModuleBuilder("go_io").
+		NewFunctionBuilder().WithFunc(hostStreamRead).Export("stream_read").
+		NewFunctionBuilder().WithFunc(hostStreamSeek).Export("stream_seek").
+		NewFunctionBuilder().WithFunc(hostStreamTell).Export("stream_tell").
+		NewFunctionBuilder().WithFunc(hostStreamLength).Export("stream_length").
 		Instantiate(ctx)
 	if err != nil {
 		return rc{}, err
@@ -879,6 +1019,29 @@ func newModuleOpt(dir string, readOnly bool) (module, error) {
 		WithName("").
 		WithStartFunctions("_initialize").
 		WithFSConfig(fsConfig)
+
+	ctx := context.Background()
+	mod, err := rt.InstantiateModule(ctx, rt.CompiledModule, cfg)
+	if err != nil {
+		return module{}, err
+	}
+
+	return module{
+		mod: mod,
+	}, nil
+}
+
+// newModuleForStream creates a module without filesystem mounts for stream-based access
+func newModuleForStream() (module, error) {
+	rt, err := getRuntimeOnce()
+	if err != nil {
+		return module{}, fmt.Errorf("get runtime once: %w", err)
+	}
+
+	cfg := wazero.
+		NewModuleConfig().
+		WithName("").
+		WithStartFunctions("_initialize")
 
 	ctx := context.Background()
 	mod, err := rt.InstantiateModule(ctx, rt.CompiledModule, cfg)
