@@ -8,212 +8,211 @@ import (
 	"go.senan.xyz/taglib"
 )
 
-// openTestFile opens a file for benchmarking and returns a cleanup function
-func openTestFile(b *testing.B, path string) *os.File {
-	b.Helper()
-	file, err := os.Open(path)
-	if err != nil {
-		b.Fatal(err)
-	}
-	return file
+var testFiles = []string{
+	"eg.mp3",
+	"eg.flac",
+	"eg.m4a",
+	"eg.ogg",
+	"eg.wav",
+	"eg.aiff",
 }
 
-// BenchmarkOpenFile benchmarks opening a file via path
-func BenchmarkOpenFile(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
+func BenchmarkOpen(b *testing.B) {
+	for _, name := range testFiles {
+		path := filepath.Join("testdata", name)
 
-	// Warm up - ensure runtime is initialized
-	f, err := taglib.OpenReadOnly(path)
-	if err != nil {
-		b.Fatal(err)
-	}
-	f.Close()
+		b.Run("File/"+name, func(b *testing.B) {
+			// Warm up
+			f, err := taglib.OpenReadOnly(path)
+			if err != nil {
+				b.Fatal(err)
+			}
+			f.Close()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		f, err := taglib.OpenReadOnly(path)
-		if err != nil {
-			b.Fatal(err)
-		}
-		f.Close()
-	}
-}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				f, err := taglib.OpenReadOnly(path)
+				if err != nil {
+					b.Fatal(err)
+				}
+				f.Close()
+			}
+		})
 
-// BenchmarkOpenStream benchmarks opening a file via io.ReadSeeker (using os.File)
-func BenchmarkOpenStream(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
+		b.Run("Stream/"+name, func(b *testing.B) {
+			// Warm up
+			file, _ := os.Open(path)
+			f, err := taglib.OpenStream(file)
+			if err != nil {
+				b.Fatal(err)
+			}
+			f.Close()
+			file.Close()
 
-	// Warm up - ensure runtime is initialized
-	file := openTestFile(b, path)
-	f, err := taglib.OpenStream(file)
-	if err != nil {
-		b.Fatal(err)
-	}
-	f.Close()
-	file.Close()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		file := openTestFile(b, path)
-		f, err := taglib.OpenStream(file)
-		if err != nil {
-			b.Fatal(err)
-		}
-		f.Close()
-		file.Close()
-	}
-}
-
-// BenchmarkReadTagsFile benchmarks reading tags via path
-func BenchmarkReadTagsFile(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
-
-	// Warm up
-	f, err := taglib.OpenReadOnly(path)
-	if err != nil {
-		b.Fatal(err)
-	}
-	_ = f.Tags()
-	f.Close()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		f, err := taglib.OpenReadOnly(path)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = f.Tags()
-		f.Close()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				file, _ := os.Open(path)
+				f, err := taglib.OpenStream(file)
+				if err != nil {
+					b.Fatal(err)
+				}
+				f.Close()
+				file.Close()
+			}
+		})
 	}
 }
 
-// BenchmarkReadTagsStream benchmarks reading tags via io.ReadSeeker (using os.File)
-func BenchmarkReadTagsStream(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
+func BenchmarkReadTags(b *testing.B) {
+	for _, name := range testFiles {
+		path := filepath.Join("testdata", name)
 
-	// Warm up
-	file := openTestFile(b, path)
-	f, err := taglib.OpenStream(file)
-	if err != nil {
-		b.Fatal(err)
-	}
-	_ = f.Tags()
-	f.Close()
-	file.Close()
+		b.Run("File/"+name, func(b *testing.B) {
+			// Warm up
+			f, err := taglib.OpenReadOnly(path)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = f.Tags()
+			f.Close()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		file := openTestFile(b, path)
-		f, err := taglib.OpenStream(file)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = f.Tags()
-		f.Close()
-		file.Close()
-	}
-}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				f, err := taglib.OpenReadOnly(path)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_ = f.Tags()
+				f.Close()
+			}
+		})
 
-// BenchmarkReadPropertiesFile benchmarks reading audio properties via path
-func BenchmarkReadPropertiesFile(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
+		b.Run("Stream/"+name, func(b *testing.B) {
+			// Warm up
+			file, _ := os.Open(path)
+			f, err := taglib.OpenStream(file)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = f.Tags()
+			f.Close()
+			file.Close()
 
-	// Warm up
-	f, err := taglib.OpenReadOnly(path)
-	if err != nil {
-		b.Fatal(err)
-	}
-	_ = f.Properties()
-	f.Close()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		f, err := taglib.OpenReadOnly(path)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = f.Properties()
-		f.Close()
-	}
-}
-
-// BenchmarkReadPropertiesStream benchmarks reading audio properties via io.ReadSeeker (using os.File)
-func BenchmarkReadPropertiesStream(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
-
-	// Warm up
-	file := openTestFile(b, path)
-	f, err := taglib.OpenStream(file)
-	if err != nil {
-		b.Fatal(err)
-	}
-	_ = f.Properties()
-	f.Close()
-	file.Close()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		file := openTestFile(b, path)
-		f, err := taglib.OpenStream(file)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = f.Properties()
-		f.Close()
-		file.Close()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				file, _ := os.Open(path)
+				f, err := taglib.OpenStream(file)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_ = f.Tags()
+				f.Close()
+				file.Close()
+			}
+		})
 	}
 }
 
-// BenchmarkReadAllFile benchmarks reading all tags and properties via path
-func BenchmarkReadAllFile(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
+func BenchmarkReadProperties(b *testing.B) {
+	for _, name := range testFiles {
+		path := filepath.Join("testdata", name)
 
-	// Warm up
-	f, err := taglib.OpenReadOnly(path)
-	if err != nil {
-		b.Fatal(err)
-	}
-	_ = f.Tags()
-	_ = f.Properties()
-	f.Close()
+		b.Run("File/"+name, func(b *testing.B) {
+			// Warm up
+			f, err := taglib.OpenReadOnly(path)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = f.Properties()
+			f.Close()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		f, err := taglib.OpenReadOnly(path)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = f.Tags()
-		_ = f.Properties()
-		f.Close()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				f, err := taglib.OpenReadOnly(path)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_ = f.Properties()
+				f.Close()
+			}
+		})
+
+		b.Run("Stream/"+name, func(b *testing.B) {
+			// Warm up
+			file, _ := os.Open(path)
+			f, err := taglib.OpenStream(file)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = f.Properties()
+			f.Close()
+			file.Close()
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				file, _ := os.Open(path)
+				f, err := taglib.OpenStream(file)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_ = f.Properties()
+				f.Close()
+				file.Close()
+			}
+		})
 	}
 }
 
-// BenchmarkReadAllStream benchmarks reading all tags and properties via io.ReadSeeker (using os.File)
-func BenchmarkReadAllStream(b *testing.B) {
-	path := filepath.Join("testdata", "eg.mp3")
+func BenchmarkReadAll(b *testing.B) {
+	for _, name := range testFiles {
+		path := filepath.Join("testdata", name)
 
-	// Warm up
-	file := openTestFile(b, path)
-	f, err := taglib.OpenStream(file)
-	if err != nil {
-		b.Fatal(err)
-	}
-	_ = f.Tags()
-	_ = f.Properties()
-	f.Close()
-	file.Close()
+		b.Run("File/"+name, func(b *testing.B) {
+			// Warm up
+			f, err := taglib.OpenReadOnly(path)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = f.Tags()
+			_ = f.Properties()
+			f.Close()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		file := openTestFile(b, path)
-		f, err := taglib.OpenStream(file)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_ = f.Tags()
-		_ = f.Properties()
-		f.Close()
-		file.Close()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				f, err := taglib.OpenReadOnly(path)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_ = f.Tags()
+				_ = f.Properties()
+				f.Close()
+			}
+		})
+
+		b.Run("Stream/"+name, func(b *testing.B) {
+			// Warm up
+			file, _ := os.Open(path)
+			f, err := taglib.OpenStream(file)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = f.Tags()
+			_ = f.Properties()
+			f.Close()
+			file.Close()
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				file, _ := os.Open(path)
+				f, err := taglib.OpenStream(file)
+				if err != nil {
+					b.Fatal(err)
+				}
+				_ = f.Tags()
+				_ = f.Properties()
+				f.Close()
+				file.Close()
+			}
+		})
 	}
 }

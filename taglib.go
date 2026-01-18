@@ -857,6 +857,15 @@ var (
 	nextStreamId     uint32 = 1
 )
 
+// Buffer pool for stream reads - avoids allocation per read call
+var streamReadPool = sync.Pool{
+	New: func() any {
+		// Match C++ BUFFER_SIZE (32KB)
+		buf := make([]byte, 32*1024)
+		return &buf
+	},
+}
+
 func registerStream(r io.ReadSeeker) uint32 {
 	streamRegistryMu.Lock()
 	defer streamRegistryMu.Unlock()
@@ -884,8 +893,19 @@ func hostStreamRead(_ context.Context, m api.Module, streamId, bufPtr, length ui
 	if r == nil {
 		return 0
 	}
-	buf := make([]byte, length)
-	n, err := r.Read(buf)
+
+	// Use pooled buffer to avoid allocation
+	bufp := streamReadPool.Get().(*[]byte)
+	buf := *bufp
+	defer streamReadPool.Put(bufp)
+
+	// Read up to buffer size
+	toRead := length
+	if toRead > uint32(len(buf)) {
+		toRead = uint32(len(buf))
+	}
+
+	n, err := r.Read(buf[:toRead])
 	if err != nil && n == 0 {
 		return 0
 	}
