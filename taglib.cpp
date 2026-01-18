@@ -97,7 +97,25 @@ extern "C" {
 
 class GoIOStream : public TagLib::IOStream {
 public:
-  GoIOStream(uint32_t streamId) : m_streamId(streamId), m_readOnly(true) {}
+  static constexpr size_t BUFFER_SIZE = 8192;
+
+  GoIOStream(uint32_t streamId)
+    : m_streamId(streamId)
+    , m_readOnly(true)
+    , m_position(0)
+    , m_length(-1)
+    , m_bufferStart(0)
+    , m_bufferLen(0)
+  {
+    m_buffer = static_cast<char *>(malloc(BUFFER_SIZE));
+  }
+
+  ~GoIOStream() {
+    if (m_buffer) {
+      free(m_buffer);
+      m_buffer = nullptr;
+    }
+  }
 
   TagLib::FileName name() const override {
     return "";
@@ -108,17 +126,33 @@ public:
       return TagLib::ByteVector();
     }
 
-    // Allocate buffer in WASM memory
-    char *buf = static_cast<char *>(malloc(length));
-    if (!buf) {
-      return TagLib::ByteVector();
+    TagLib::ByteVector result;
+    result.resize(length);
+    size_t totalRead = 0;
+
+    while (totalRead < length) {
+      // Check if we have buffered data for current position
+      if (m_bufferLen > 0 && m_position >= m_bufferStart &&
+          m_position < m_bufferStart + static_cast<int64_t>(m_bufferLen)) {
+        // Read from buffer
+        size_t bufOffset = static_cast<size_t>(m_position - m_bufferStart);
+        size_t available = m_bufferLen - bufOffset;
+        size_t toCopy = std::min(available, length - totalRead);
+
+        memcpy(result.data() + totalRead, m_buffer + bufOffset, toCopy);
+        m_position += toCopy;
+        totalRead += toCopy;
+      } else {
+        // Need to fill buffer from Go
+        if (!fillBuffer()) {
+          break; // EOF or error
+        }
+      }
     }
 
-    // Call Go to read into buffer
-    uint32_t bytesRead = go_stream_read(m_streamId, reinterpret_cast<uint32_t>(buf), static_cast<uint32_t>(length));
-
-    TagLib::ByteVector result(buf, bytesRead);
-    free(buf);
+    if (totalRead < length) {
+      result.resize(totalRead);
+    }
     return result;
   }
 
@@ -143,13 +177,33 @@ public:
   }
 
   void seek(TagLib::offset_t offset, Position p = Beginning) override {
-    int32_t whence = 0;
+    int64_t newPos = 0;
     switch (p) {
-      case Beginning: whence = 0; break;
-      case Current:   whence = 1; break;
-      case End:       whence = 2; break;
+      case Beginning:
+        newPos = offset;
+        break;
+      case Current:
+        newPos = m_position + offset;
+        break;
+      case End:
+        newPos = length() + offset;
+        break;
     }
-    go_stream_seek(m_streamId, offset, whence);
+
+    // Clamp to valid range
+    if (newPos < 0) newPos = 0;
+
+    // Check if new position is within buffer - if so, no Go call needed
+    if (m_bufferLen > 0 && newPos >= m_bufferStart &&
+        newPos <= m_bufferStart + static_cast<int64_t>(m_bufferLen)) {
+      m_position = newPos;
+      return;
+    }
+
+    // Position outside buffer, just update position and invalidate buffer
+    // The actual Go seek will happen when we need to read
+    m_position = newPos;
+    m_bufferLen = 0; // Invalidate buffer
   }
 
   void clear() override {
@@ -157,11 +211,14 @@ public:
   }
 
   TagLib::offset_t tell() const override {
-    return go_stream_tell(m_streamId);
+    return m_position;
   }
 
   TagLib::offset_t length() override {
-    return go_stream_length(m_streamId);
+    if (m_length < 0) {
+      m_length = go_stream_length(m_streamId);
+    }
+    return m_length;
   }
 
   void truncate(TagLib::offset_t length) override {
@@ -169,8 +226,28 @@ public:
   }
 
 private:
+  bool fillBuffer() {
+    // Seek Go stream to current position
+    go_stream_seek(m_streamId, m_position, 0);
+
+    // Read into buffer
+    uint32_t bytesRead = go_stream_read(m_streamId, reinterpret_cast<uint32_t>(m_buffer), BUFFER_SIZE);
+    if (bytesRead == 0) {
+      return false;
+    }
+
+    m_bufferStart = m_position;
+    m_bufferLen = bytesRead;
+    return true;
+  }
+
   uint32_t m_streamId;
   bool m_readOnly;
+  int64_t m_position;    // Current logical position
+  int64_t m_length;      // Cached length (-1 = not cached)
+  char *m_buffer;        // Read buffer
+  int64_t m_bufferStart; // Position in stream where buffer starts
+  size_t m_bufferLen;    // Valid bytes in buffer
 };
 
 // Handle management
