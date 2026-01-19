@@ -90,6 +90,34 @@ func (f FileFormat) String() string {
 	}
 }
 
+// ReadStyle controls how thoroughly audio properties are read from a file.
+// Higher accuracy requires reading more of the file, which takes longer.
+type ReadStyle uint8
+
+const (
+	// ReadStyleFast reads as little of the file as possible for quick metadata access.
+	ReadStyleFast ReadStyle = 0
+	// ReadStyleAverage provides a balance between speed and accuracy (default).
+	ReadStyleAverage ReadStyle = 1
+	// ReadStyleAccurate reads as much of the file as needed for precise values.
+	ReadStyleAccurate ReadStyle = 2
+)
+
+// OpenOption configures how a file is opened.
+type OpenOption func(*openOptions)
+
+type openOptions struct {
+	readStyle ReadStyle
+}
+
+// WithReadStyle sets the read style for audio properties.
+// Default is [ReadStyleAverage].
+func WithReadStyle(style ReadStyle) OpenOption {
+	return func(o *openOptions) {
+		o.readStyle = style
+	}
+}
+
 // File represents an open audio file handle for efficient multiple operations.
 // Use [Open] or [OpenReadOnly] to create a File, and always call [File.Close] when done.
 type File struct {
@@ -101,21 +129,36 @@ type File struct {
 
 // Open opens an audio file for reading and writing.
 // The returned File must be closed with [File.Close] when done.
-func Open(path string) (*File, error) {
-	return openFile(path, false)
+// Options can be provided to configure behavior (e.g., [WithReadStyle]).
+func Open(path string, opts ...OpenOption) (*File, error) {
+	o := &openOptions{readStyle: ReadStyleAverage}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return openFile(path, false, o.readStyle)
 }
 
 // OpenReadOnly opens an audio file for reading only.
 // The returned File must be closed with [File.Close] when done.
-func OpenReadOnly(path string) (*File, error) {
-	return openFile(path, true)
+// Options can be provided to configure behavior (e.g., [WithReadStyle]).
+func OpenReadOnly(path string, opts ...OpenOption) (*File, error) {
+	o := &openOptions{readStyle: ReadStyleAverage}
+	for _, opt := range opts {
+		opt(o)
+	}
+	return openFile(path, true, o.readStyle)
 }
 
 // OpenStream opens an audio stream for reading metadata.
 // The reader must remain valid for the lifetime of the returned File.
 // The returned File must be closed with [File.Close] when done.
 // This is useful for reading from network streams, archives, or in-memory buffers.
-func OpenStream(r io.ReadSeeker) (*File, error) {
+// Options can be provided to configure behavior (e.g., [WithReadStyle]).
+func OpenStream(r io.ReadSeeker, opts ...OpenOption) (*File, error) {
+	o := &openOptions{readStyle: ReadStyleAverage}
+	for _, opt := range opts {
+		opt(o)
+	}
 	streamId := registerStream(r)
 
 	mod, err := newModuleForStream()
@@ -125,7 +168,7 @@ func OpenStream(r io.ReadSeeker) (*File, error) {
 	}
 
 	var result wasmOpenResult
-	if err := mod.call("taglib_stream_open", &result, wasmUint32(streamId)); err != nil {
+	if err := mod.call("taglib_stream_open", &result, wasmUint32(streamId), wasmUint8(o.readStyle)); err != nil {
 		mod.close()
 		unregisterStream(streamId)
 		return nil, fmt.Errorf("call: %w", err)
@@ -144,7 +187,7 @@ func OpenStream(r io.ReadSeeker) (*File, error) {
 	}, nil
 }
 
-func openFile(path string, readOnly bool) (*File, error) {
+func openFile(path string, readOnly bool, readStyle ReadStyle) (*File, error) {
 	var err error
 	path, err = filepath.Abs(path)
 	if err != nil {
@@ -163,7 +206,7 @@ func openFile(path string, readOnly bool) (*File, error) {
 	}
 
 	var result wasmOpenResult
-	if err := mod.call("taglib_file_open", &result, wasmString(wasmPath(path))); err != nil {
+	if err := mod.call("taglib_file_open", &result, wasmString(wasmPath(path)), wasmUint8(readStyle)); err != nil {
 		mod.close()
 		return nil, fmt.Errorf("call: %w", err)
 	}

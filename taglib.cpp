@@ -264,8 +264,9 @@ struct OpenResult {
 };
 
 __attribute__((export_name("taglib_file_open"))) OpenResult *
-taglib_file_open(const char *filename) {
-  TagLib::FileRef *fileRef = new TagLib::FileRef(filename);
+taglib_file_open(const char *filename, uint8_t readStyle) {
+  auto style = static_cast<TagLib::AudioProperties::ReadStyle>(readStyle);
+  TagLib::FileRef *fileRef = new TagLib::FileRef(filename, true, style);
   if (fileRef->isNull()) {
     delete fileRef;
     return nullptr;
@@ -301,12 +302,13 @@ taglib_file_close(uint32_t handle) {
 
 // Open a file from a Go io.ReadSeeker stream
 __attribute__((export_name("taglib_stream_open"))) OpenResult *
-taglib_stream_open(uint32_t streamId) {
+taglib_stream_open(uint32_t streamId, uint8_t readStyle) {
   GoIOStream *stream = new GoIOStream(streamId);
+  auto style = static_cast<TagLib::AudioProperties::ReadStyle>(readStyle);
 
   // FileRef takes ownership of the stream pointer for file operations
   // but does NOT delete it - we manage it in FileHandle
-  TagLib::FileRef *fileRef = new TagLib::FileRef(stream);
+  TagLib::FileRef *fileRef = new TagLib::FileRef(stream, true, style);
   if (fileRef->isNull()) {
     delete fileRef;
     delete stream;
