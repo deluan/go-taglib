@@ -15,6 +15,7 @@
 #include "mpeg/id3v2/frames/popularimeterframe.h"
 #include "mpeg/id3v2/frames/unsynchronizedlyricsframe.h"
 #include "mpeg/id3v2/frames/synchronizedlyricsframe.h"
+#include "mpeg/mpegproperties.h"
 #include "mp4/mp4file.h"
 #include "mp4/mp4tag.h"
 #include "mp4/mp4item.h"
@@ -43,6 +44,7 @@
 #include "dsdiff/dsdifffile.h"
 #include "trueaudio/trueaudiofile.h"
 #include "mpc/mpcfile.h"
+#include "mpc/mpcproperties.h"
 #include "shorten/shortenfile.h"
 
 // File format enum - must match Go's FileFormat
@@ -442,6 +444,7 @@ struct HandleFileProperties {
   uint32_t bitrate;
   uint32_t bitsPerSample;
   char **imageMetadata;
+  char *codec;
 };
 
 __attribute__((export_name("taglib_handle_properties"))) HandleFileProperties *
@@ -480,6 +483,45 @@ taglib_handle_properties(uint32_t handle) {
   else if (const auto* dsfProperties = dynamic_cast<const TagLib::DSF::Properties*>(audioProperties))
     bitsPerSample = dsfProperties->bitsPerSample();
   props->bitsPerSample = bitsPerSample > 0 ? bitsPerSample : 0;
+
+  // Extract codec for supported formats
+  TagLib::String codec;
+  if (const auto* mp4Props = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties)) {
+    switch (mp4Props->codec()) {
+      case TagLib::MP4::Properties::AAC: codec = "AAC"; break;
+      case TagLib::MP4::Properties::ALAC: codec = "ALAC"; break;
+      default: break;
+    }
+  }
+  else if (const auto* asfProps = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties)) {
+    switch (asfProps->codec()) {
+      case TagLib::ASF::Properties::WMA1: codec = "WMA1"; break;
+      case TagLib::ASF::Properties::WMA2: codec = "WMA2"; break;
+      case TagLib::ASF::Properties::WMA9Pro: codec = "WMA9Pro"; break;
+      case TagLib::ASF::Properties::WMA9Lossless: codec = "WMA9Lossless"; break;
+      default: break;
+    }
+  }
+  else if (const auto* mpegProps = dynamic_cast<const TagLib::MPEG::Properties*>(audioProperties)) {
+    if (mpegProps->isADTS()) {
+      codec = "AAC";
+    } else {
+      switch (mpegProps->layer()) {
+        case 1: codec = "MP1"; break;
+        case 2: codec = "MP2"; break;
+        case 3: codec = "MP3"; break;
+        default: break;
+      }
+    }
+  }
+  else if (const auto* mpcProps = dynamic_cast<const TagLib::MPC::Properties*>(audioProperties)) {
+    int version = mpcProps->mpcVersion();
+    if (version >= 8)
+      codec = "MPC8";
+    else if (version >= 7)
+      codec = "MPC7";
+  }
+  props->codec = codec.isEmpty() ? nullptr : to_char_array(codec);
 
   const auto &pictures = fileRef->complexProperties("PICTURE");
 
@@ -962,6 +1004,7 @@ struct FileProperties {
   uint32_t bitrate;
   uint32_t bitsPerSample;
   char **imageMetadata;
+  char *codec;
 };
 
 __attribute__((export_name("taglib_file_read_properties"))) FileProperties *
@@ -1000,6 +1043,45 @@ taglib_file_read_properties(const char *filename) {
   else if (const auto* dsfProperties = dynamic_cast<const TagLib::DSF::Properties*>(audioProperties))
     bitsPerSample = dsfProperties->bitsPerSample();
   props->bitsPerSample = bitsPerSample > 0 ? bitsPerSample : 0;
+
+  // Extract codec for supported formats
+  TagLib::String codec;
+  if (const auto* mp4Props = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties)) {
+    switch (mp4Props->codec()) {
+      case TagLib::MP4::Properties::AAC: codec = "AAC"; break;
+      case TagLib::MP4::Properties::ALAC: codec = "ALAC"; break;
+      default: break;
+    }
+  }
+  else if (const auto* asfProps = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties)) {
+    switch (asfProps->codec()) {
+      case TagLib::ASF::Properties::WMA1: codec = "WMA1"; break;
+      case TagLib::ASF::Properties::WMA2: codec = "WMA2"; break;
+      case TagLib::ASF::Properties::WMA9Pro: codec = "WMA9Pro"; break;
+      case TagLib::ASF::Properties::WMA9Lossless: codec = "WMA9Lossless"; break;
+      default: break;
+    }
+  }
+  else if (const auto* mpegProps = dynamic_cast<const TagLib::MPEG::Properties*>(audioProperties)) {
+    if (mpegProps->isADTS()) {
+      codec = "AAC";
+    } else {
+      switch (mpegProps->layer()) {
+        case 1: codec = "MP1"; break;
+        case 2: codec = "MP2"; break;
+        case 3: codec = "MP3"; break;
+        default: break;
+      }
+    }
+  }
+  else if (const auto* mpcProps = dynamic_cast<const TagLib::MPC::Properties*>(audioProperties)) {
+    int version = mpcProps->mpcVersion();
+    if (version >= 8)
+      codec = "MPC8";
+    else if (version >= 7)
+      codec = "MPC7";
+  }
+  props->codec = codec.isEmpty() ? nullptr : to_char_array(codec);
 
   const auto &pictures = file.complexProperties("PICTURE");
 

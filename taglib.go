@@ -335,6 +335,7 @@ func (f *File) Properties() Properties {
 		SampleRate:    uint(raw.sampleRate),
 		Bitrate:       uint(raw.bitrate),
 		BitsPerSample: uint(raw.bitsPerSample),
+		Codec:         raw.codec,
 		Images:        images,
 	}
 }
@@ -694,6 +695,8 @@ type Properties struct {
 	Bitrate uint
 	// BitsPerSample is the bit depth (e.g., 16, 24, 32). May be 0 for formats that don't support this.
 	BitsPerSample uint
+	// Codec is the audio codec (e.g., "MP3", "AAC", "ALAC"). May be empty for formats without codec variants.
+	Codec string
 	// Images contains metadata about all embedded images
 	Images []ImageDesc
 }
@@ -747,6 +750,7 @@ func ReadProperties(path string) (Properties, error) {
 		SampleRate:    uint(raw.sampleRate),
 		Bitrate:       uint(raw.bitrate),
 		BitsPerSample: uint(raw.bitsPerSample),
+		Codec:         raw.codec,
 		Images:        images,
 	}, nil
 }
@@ -1230,6 +1234,7 @@ type wasmFileProperties struct {
 	bitrate              uint32
 	bitsPerSample        uint32
 	imageDescs           []string
+	codec                string
 }
 
 func (f *wasmFileProperties) decode(m *module, val uint64) {
@@ -1247,6 +1252,11 @@ func (f *wasmFileProperties) decode(m *module, val uint64) {
 	imageMetadataPtr, _ := m.mod.Memory().ReadUint32Le(ptr + 20)
 	if imageMetadataPtr != 0 {
 		f.imageDescs = readStrings(m, imageMetadataPtr)
+	}
+
+	codecPtr, _ := m.mod.Memory().ReadUint32Le(ptr + 24)
+	if codecPtr != 0 {
+		f.codec = readString(m, codecPtr)
 	}
 }
 

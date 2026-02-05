@@ -361,6 +361,34 @@ func TestPropertiesBitsPerSample(t *testing.T) {
 	}
 }
 
+func TestPropertiesCodec(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		data     []byte
+		filename string
+		codec    string
+	}{
+		{"MP3", egMP3, "eg.mp3", "MP3"},
+		{"M4A", egM4a, "eg.m4a", "AAC"},
+		{"WMA", egWMA, "eg.wma", "WMA2"},
+		{"FLAC", egFLAC, "eg.flac", ""}, // FLAC doesn't have codec variants
+		{"OGG", egOgg, "eg.ogg", ""},    // Vorbis doesn't have codec variants
+		{"WAV", egWAV, "eg.wav", ""},    // WAV doesn't have codec variants
+		{"AIFF", egAIFF, "eg.aiff", ""}, // AIFF doesn't have codec variants
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := tmpf(t, tt.data, tt.filename)
+			properties, err := taglib.ReadProperties(path)
+			nilErr(t, err)
+			eq(t, tt.codec, properties.Codec)
+		})
+	}
+}
+
 func TestMultiOpen(t *testing.T) {
 	t.Parallel()
 
@@ -1263,6 +1291,37 @@ func TestFileProperties(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFilePropertiesCodec(t *testing.T) {
+	t.Parallel()
+
+	// Test MP3 codec via File handle API
+	t.Run("MP3", func(t *testing.T) {
+		path := tmpf(t, egMP3, "eg.mp3")
+		f, err := taglib.OpenReadOnly(path)
+		nilErr(t, err)
+		defer f.Close()
+		eq(t, "MP3", f.Properties().Codec)
+	})
+
+	// Test AAC codec via File handle API
+	t.Run("M4A", func(t *testing.T) {
+		path := tmpf(t, egM4a, "eg.m4a")
+		f, err := taglib.OpenReadOnly(path)
+		nilErr(t, err)
+		defer f.Close()
+		eq(t, "AAC", f.Properties().Codec)
+	})
+
+	// Test WMA codec via File handle API
+	t.Run("WMA", func(t *testing.T) {
+		path := tmpf(t, egWMA, "eg.wma")
+		f, err := taglib.OpenReadOnly(path)
+		nilErr(t, err)
+		defer f.Close()
+		eq(t, "WMA2", f.Properties().Codec)
+	})
 }
 
 func TestFileRawTags(t *testing.T) {
