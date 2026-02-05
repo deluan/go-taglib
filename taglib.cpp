@@ -221,7 +221,7 @@ struct FileHandle {
 static std::map<uint32_t, FileHandle> g_handles;
 static uint32_t g_nextHandle = 1;
 
-static FileFormat detectFormat(TagLib::File *file) {
+static FileFormat detect_format(TagLib::File *file) {
   if (!file) return FORMAT_UNKNOWN;
   if (dynamic_cast<TagLib::MPEG::File *>(file)) return FORMAT_MPEG;
   if (dynamic_cast<TagLib::MP4::File *>(file)) return FORMAT_MP4;
@@ -281,7 +281,7 @@ taglib_file_open(const char *filename, uint8_t readStyle) {
   }
 
   uint32_t handle = g_nextHandle++;
-  FileFormat format = detectFormat(fileRef->file());
+  FileFormat format = detect_format(fileRef->file());
 
   g_handles[handle] = FileHandle{fileRef, nullptr, format};
 
@@ -325,7 +325,7 @@ taglib_stream_open(uint32_t streamId, uint8_t readStyle) {
   }
 
   uint32_t handle = g_nextHandle++;
-  FileFormat format = detectFormat(fileRef->file());
+  FileFormat format = detect_format(fileRef->file());
 
   g_handles[handle] = FileHandle{fileRef, stream, format};
 
@@ -335,20 +335,20 @@ taglib_stream_open(uint32_t streamId, uint8_t readStyle) {
 }
 
 // Helper to get FileRef from handle
-static TagLib::FileRef *getFileRef(uint32_t handle) {
+static TagLib::FileRef *get_file_ref(uint32_t handle) {
   auto it = g_handles.find(handle);
   if (it == g_handles.end()) return nullptr;
   return it->second.fileRef;
 }
 
-static FileFormat getFormat(uint32_t handle) {
+static FileFormat get_format(uint32_t handle) {
   auto it = g_handles.find(handle);
   if (it == g_handles.end()) return FORMAT_UNKNOWN;
   return it->second.format;
 }
 
 // Helper to serialize properties to string array
-static char **serializeProperties(const TagLib::PropertyMap &properties) {
+static char **serialize_properties(const TagLib::PropertyMap &properties) {
   size_t len = 0;
   for (const auto &kvs : properties)
     len += kvs.second.size();
@@ -371,26 +371,24 @@ static char **serializeProperties(const TagLib::PropertyMap &properties) {
 
 __attribute__((export_name("taglib_handle_tags"))) char **
 taglib_handle_tags(uint32_t handle) {
-  TagLib::FileRef *fileRef = getFileRef(handle);
-  if (!fileRef || fileRef->isNull())
+  TagLib::FileRef *fileRef = get_file_ref(handle);
+  if (!fileRef)
     return nullptr;
-
-  auto properties = fileRef->properties();
-  return serializeProperties(properties);
+  return serialize_properties(fileRef->properties());
 }
 
 // Forward declarations for raw tag helpers
-static char **readID3v2FramesFromTag(TagLib::ID3v2::Tag *id3v2Tag);
-static char **readMP4ItemsFromTag(TagLib::MP4::Tag *mp4Tag);
-static char **readASFAttributesFromTag(TagLib::ASF::Tag *asfTag);
+static char **read_id3v2_frames_from_tag(TagLib::ID3v2::Tag *id3v2Tag);
+static char **read_mp4_items_from_tag(TagLib::MP4::Tag *mp4Tag);
+static char **read_asf_attributes_from_tag(TagLib::ASF::Tag *asfTag);
 
 __attribute__((export_name("taglib_handle_raw_tags"))) char **
 taglib_handle_raw_tags(uint32_t handle) {
-  TagLib::FileRef *fileRef = getFileRef(handle);
+  TagLib::FileRef *fileRef = get_file_ref(handle);
   if (!fileRef || fileRef->isNull())
     return nullptr;
 
-  FileFormat format = getFormat(handle);
+  FileFormat format = get_format(handle);
   TagLib::File *file = fileRef->file();
 
   // Route based on format
@@ -398,37 +396,37 @@ taglib_handle_raw_tags(uint32_t handle) {
     case FORMAT_MPEG: {
       auto *mpegFile = dynamic_cast<TagLib::MPEG::File *>(file);
       if (mpegFile && mpegFile->hasID3v2Tag())
-        return readID3v2FramesFromTag(mpegFile->ID3v2Tag());
+        return read_id3v2_frames_from_tag(mpegFile->ID3v2Tag());
       break;
     }
     case FORMAT_WAV: {
       auto *wavFile = dynamic_cast<TagLib::RIFF::WAV::File *>(file);
       if (wavFile && wavFile->hasID3v2Tag())
-        return readID3v2FramesFromTag(wavFile->ID3v2Tag());
+        return read_id3v2_frames_from_tag(wavFile->ID3v2Tag());
       break;
     }
     case FORMAT_AIFF: {
       auto *aiffFile = dynamic_cast<TagLib::RIFF::AIFF::File *>(file);
       if (aiffFile && aiffFile->hasID3v2Tag())
-        return readID3v2FramesFromTag(aiffFile->tag());
+        return read_id3v2_frames_from_tag(aiffFile->tag());
       break;
     }
     case FORMAT_MP4: {
       auto *mp4File = dynamic_cast<TagLib::MP4::File *>(file);
       if (mp4File && mp4File->hasMP4Tag())
-        return readMP4ItemsFromTag(mp4File->tag());
+        return read_mp4_items_from_tag(mp4File->tag());
       break;
     }
     case FORMAT_ASF: {
       auto *asfFile = dynamic_cast<TagLib::ASF::File *>(file);
       if (asfFile && asfFile->tag())
-        return readASFAttributesFromTag(asfFile->tag());
+        return read_asf_attributes_from_tag(asfFile->tag());
       break;
     }
     default:
       // For formats without format-specific tags (FLAC, OGG, etc.),
       // return the same as normalized tags (they use Vorbis Comments)
-      return serializeProperties(fileRef->properties());
+      return serialize_properties(fileRef->properties());
   }
 
   // Return empty array
@@ -447,7 +445,7 @@ struct FileProperties {
   char *codec;
 };
 
-static int extractBitsPerSample(const TagLib::AudioProperties *audioProperties) {
+static int extract_bits_per_sample(const TagLib::AudioProperties *audioProperties) {
   if (const auto* apeProperties = dynamic_cast<const TagLib::APE::Properties*>(audioProperties))
     return apeProperties->bitsPerSample();
   if (const auto* asfProperties = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties))
@@ -467,7 +465,7 @@ static int extractBitsPerSample(const TagLib::AudioProperties *audioProperties) 
   return 0;
 }
 
-static char* extractCodec(const TagLib::AudioProperties *audioProperties) {
+static char* extract_codec(const TagLib::AudioProperties *audioProperties) {
   TagLib::String codec;
   if (const auto* mp4Props = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties)) {
     switch (mp4Props->codec()) {
@@ -507,7 +505,7 @@ static char* extractCodec(const TagLib::AudioProperties *audioProperties) {
   return codec.isEmpty() ? nullptr : to_char_array(codec);
 }
 
-static char** extractImageMetadata(const TagLib::List<TagLib::VariantMap> &pictures) {
+static char** extract_image_metadata(const TagLib::List<TagLib::VariantMap> &pictures) {
   if (pictures.isEmpty())
     return nullptr;
 
@@ -529,7 +527,7 @@ static char** extractImageMetadata(const TagLib::List<TagLib::VariantMap> &pictu
   return imageMetadata;
 }
 
-static FileProperties* readFileProperties(TagLib::FileRef &file) {
+static FileProperties* read_file_properties(TagLib::FileRef &file) {
   if (file.isNull() || !file.audioProperties())
     return nullptr;
 
@@ -542,33 +540,31 @@ static FileProperties* readFileProperties(TagLib::FileRef &file) {
   props->channels = audioProperties->channels();
   props->sampleRate = audioProperties->sampleRate();
   props->bitrate = audioProperties->bitrate();
-  props->bitsPerSample = extractBitsPerSample(audioProperties);
-  props->codec = extractCodec(audioProperties);
-  props->imageMetadata = extractImageMetadata(file.complexProperties("PICTURE"));
+  props->bitsPerSample = extract_bits_per_sample(audioProperties);
+  props->codec = extract_codec(audioProperties);
+  props->imageMetadata = extract_image_metadata(file.complexProperties("PICTURE"));
 
   return props;
 }
 
 __attribute__((export_name("taglib_handle_properties"))) FileProperties *
 taglib_handle_properties(uint32_t handle) {
-  TagLib::FileRef *fileRef = getFileRef(handle);
+  TagLib::FileRef *fileRef = get_file_ref(handle);
   if (!fileRef)
     return nullptr;
-  return readFileProperties(*fileRef);
+  return read_file_properties(*fileRef);
 }
 
-struct HandleByteData {
+struct ByteData {
   uint32_t length;
   char *data;
 };
 
-__attribute__((export_name("taglib_handle_image"))) HandleByteData *
-taglib_handle_image(uint32_t handle, int index) {
-  TagLib::FileRef *fileRef = getFileRef(handle);
-  if (!fileRef || fileRef->isNull())
+static ByteData* read_image(TagLib::FileRef &file, int index) {
+  if (file.isNull())
     return nullptr;
 
-  const auto &pictures = fileRef->complexProperties("PICTURE");
+  const auto &pictures = file.complexProperties("PICTURE");
   if (pictures.isEmpty())
     return nullptr;
 
@@ -576,7 +572,7 @@ taglib_handle_image(uint32_t handle, int index) {
     return nullptr;
 
   auto v = pictures[index]["data"].toByteVector();
-  HandleByteData *bd = static_cast<HandleByteData *>(malloc(sizeof(HandleByteData)));
+  ByteData *bd = static_cast<ByteData *>(malloc(sizeof(ByteData)));
   if (!bd)
     return nullptr;
 
@@ -596,15 +592,21 @@ taglib_handle_image(uint32_t handle, int index) {
   return bd;
 }
 
-__attribute__((export_name("taglib_handle_write_tags"))) bool
-taglib_handle_write_tags(uint32_t handle, const char **tags, uint8_t opts) {
-  TagLib::FileRef *fileRef = getFileRef(handle);
-  if (!fileRef || fileRef->isNull() || !tags)
+__attribute__((export_name("taglib_handle_image"))) ByteData *
+taglib_handle_image(uint32_t handle, int index) {
+  TagLib::FileRef *fileRef = get_file_ref(handle);
+  if (!fileRef)
+    return nullptr;
+  return read_image(*fileRef, index);
+}
+
+static const uint8_t CLEAR = 1 << 0;
+
+static bool write_tags(TagLib::FileRef &file, const char **tags, uint8_t opts) {
+  if (file.isNull() || !tags)
     return false;
 
-  static const uint8_t CLEAR = 1 << 0;
-
-  auto properties = fileRef->properties();
+  auto properties = file.properties();
   if (opts & CLEAR)
     properties.clear();
 
@@ -620,29 +622,35 @@ taglib_handle_write_tags(uint32_t handle, const char **tags, uint8_t opts) {
     }
   }
 
-  fileRef->setProperties(properties);
-  return fileRef->save();
+  file.setProperties(properties);
+  return file.save();
 }
 
-__attribute__((export_name("taglib_handle_write_image"))) bool
-taglib_handle_write_image(uint32_t handle, const char *buf, uint32_t length,
-                          int index, const char *pictureType,
-                          const char *description, const char *mimeType) {
-  TagLib::FileRef *fileRef = getFileRef(handle);
-  if (!fileRef || fileRef->isNull())
+__attribute__((export_name("taglib_handle_write_tags"))) bool
+taglib_handle_write_tags(uint32_t handle, const char **tags, uint8_t opts) {
+  TagLib::FileRef *fileRef = get_file_ref(handle);
+  if (!fileRef)
+    return false;
+  return write_tags(*fileRef, tags, opts);
+}
+
+static bool write_image(TagLib::FileRef &file, const char *buf, uint32_t length,
+                       int index, const char *pictureType,
+                       const char *description, const char *mimeType) {
+  if (file.isNull())
     return false;
 
-  auto pictures = fileRef->complexProperties("PICTURE");
+  auto pictures = file.complexProperties("PICTURE");
 
   if (length == 0) {
     if (index >= 0 && index < static_cast<int>(pictures.size())) {
       auto it = pictures.begin();
       std::advance(it, index);
       pictures.erase(it);
-      if (!fileRef->setComplexProperties("PICTURE", pictures))
+      if (!file.setComplexProperties("PICTURE", pictures))
         return false;
     }
-    return fileRef->save();
+    return file.save();
   }
 
   TagLib::VariantMap newPicture;
@@ -656,17 +664,27 @@ taglib_handle_write_image(uint32_t handle, const char *buf, uint32_t length,
   else
     pictures.append(newPicture);
 
-  if (!fileRef->setComplexProperties("PICTURE", pictures))
+  if (!file.setComplexProperties("PICTURE", pictures))
     return false;
 
-  return fileRef->save();
+  return file.save();
+}
+
+__attribute__((export_name("taglib_handle_write_image"))) bool
+taglib_handle_write_image(uint32_t handle, const char *buf, uint32_t length,
+                          int index, const char *pictureType,
+                          const char *description, const char *mimeType) {
+  TagLib::FileRef *fileRef = get_file_ref(handle);
+  if (!fileRef)
+    return false;
+  return write_image(*fileRef, buf, length, index, pictureType, description, mimeType);
 }
 
 // ============================================================================
 // Helper functions for raw tag extraction (shared by handle and path APIs)
 // ============================================================================
 
-static char **readID3v2FramesFromTag(TagLib::ID3v2::Tag *id3v2Tag) {
+static char **read_id3v2_frames_from_tag(TagLib::ID3v2::Tag *id3v2Tag) {
   if (!id3v2Tag) {
     char **empty = static_cast<char **>(malloc(sizeof(char *)));
     if (empty) empty[0] = nullptr;
@@ -775,7 +793,7 @@ static char **readID3v2FramesFromTag(TagLib::ID3v2::Tag *id3v2Tag) {
   return frames;
 }
 
-static char **readMP4ItemsFromTag(TagLib::MP4::Tag *mp4Tag) {
+static char **read_mp4_items_from_tag(TagLib::MP4::Tag *mp4Tag) {
   if (!mp4Tag) {
     char **empty = static_cast<char **>(malloc(sizeof(char *)));
     if (empty) empty[0] = nullptr;
@@ -862,7 +880,7 @@ static char **readMP4ItemsFromTag(TagLib::MP4::Tag *mp4Tag) {
   return atoms;
 }
 
-static char **readASFAttributesFromTag(TagLib::ASF::Tag *asfTag) {
+static char **read_asf_attributes_from_tag(TagLib::ASF::Tag *asfTag) {
   if (!asfTag) {
     char **empty = static_cast<char **>(malloc(sizeof(char *)));
     if (empty) empty[0] = nullptr;
@@ -949,104 +967,27 @@ taglib_file_tags(const char *filename) {
   TagLib::FileRef file(filename);
   if (file.isNull())
     return nullptr;
-
-  auto properties = file.properties();
-
-  size_t len = 0;
-  for (const auto &kvs : properties)
-    len += kvs.second.size();
-
-  char **tags = static_cast<char **>(malloc(sizeof(char *) * (len + 1)));
-  if (!tags)
-    return nullptr;
-
-  size_t i = 0;
-  for (const auto &kvs : properties)
-    for (const auto &v : kvs.second) {
-      TagLib::String row = kvs.first + "\t" + v;
-      tags[i] = to_char_array(row);
-      i++;
-    }
-  tags[len] = nullptr;
-
-  return tags;
+  return serialize_properties(file.properties());
 }
-
-static const uint8_t CLEAR = 1 << 0;
 
 __attribute__((export_name("taglib_file_write_tags"))) bool
 taglib_file_write_tags(const char *filename, const char **tags, uint8_t opts) {
-  if (!filename || !tags)
+  if (!filename)
     return false;
-
   TagLib::FileRef file(filename);
-  if (file.isNull())
-    return false;
-
-  auto properties = file.properties();
-  if (opts & CLEAR)
-    properties.clear();
-
-  for (size_t i = 0; tags[i]; i++) {
-    TagLib::String row(tags[i], TagLib::String::UTF8);
-    if (auto ti = row.find("\t"); ti != -1) {
-      auto key = row.substr(0, ti);
-      auto value = row.substr(ti + 1);
-      if (value.isEmpty())
-        properties.erase(key);
-      else
-        properties.replace(key, value.split("\v"));
-    }
-  }
-
-  file.setProperties(properties);
-  return file.save();
+  return write_tags(file, tags, opts);
 }
 
 __attribute__((export_name("taglib_file_read_properties"))) FileProperties *
 taglib_file_read_properties(const char *filename) {
   TagLib::FileRef file(filename);
-  return readFileProperties(file);
+  return read_file_properties(file);
 }
-
-struct ByteData {
-  uint32_t length;
-  char *data;
-};
 
 __attribute__((export_name("taglib_file_read_image"))) ByteData *
 taglib_file_read_image(const char *filename, int index) {
   TagLib::FileRef file(filename);
-  if (file.isNull())
-    return nullptr;
-
-  const auto &pictures = file.complexProperties("PICTURE");
-  if (pictures.isEmpty())
-    return nullptr;
-
-  if (index < 0 || index >= static_cast<int>(pictures.size()))
-    return nullptr;
-
-  auto v = pictures[index]["data"].toByteVector();
-  ByteData *bd = static_cast<ByteData *>(malloc(sizeof(ByteData)));
-  if (!bd)
-    return nullptr;
-
-  bd->length = static_cast<uint32_t>(v.size());
-  if (bd->length == 0) {
-    bd->data = nullptr;
-    return bd;
-  }
-
-  // allocate and copy into module memory to keep it valid for go to read
-  char *buf = static_cast<char *>(malloc(bd->length));
-  if (!buf)
-    return nullptr;
-
-  memcpy(buf, v.data(), bd->length);
-  bd->data = buf;
-
-  return bd;
+  return read_image(file, index);
 }
 
 __attribute__((export_name("taglib_file_write_image"))) bool
@@ -1054,39 +995,7 @@ taglib_file_write_image(const char *filename, const char *buf, uint32_t length,
                         int index, const char *pictureType,
                         const char *description, const char *mimeType) {
   TagLib::FileRef file(filename);
-  if (file.isNull())
-    return false;
-
-  auto pictures = file.complexProperties("PICTURE");
-
-  if (length == 0) {
-    // remove image at index if it exists
-    if (index >= 0 && index < static_cast<int>(pictures.size())) {
-      auto it = pictures.begin();
-      std::advance(it, index);
-      pictures.erase(it);
-      if (!file.setComplexProperties("PICTURE", pictures))
-        return false;
-    }
-    return file.save();
-  }
-
-  TagLib::VariantMap newPicture;
-  newPicture["data"] = TagLib::ByteVector(buf, length);
-  newPicture["pictureType"] = to_string(pictureType);
-  newPicture["description"] = to_string(description);
-  newPicture["mimeType"] = to_string(mimeType);
-
-  // replace image at index, or append if index is out of range
-  if (index >= 0 && index < static_cast<int>(pictures.size()))
-    pictures[index] = newPicture;
-  else
-    pictures.append(newPicture);
-
-  if (!file.setComplexProperties("PICTURE", pictures))
-    return false;
-
-  return file.save();
+  return write_image(file, buf, length, index, pictureType, description, mimeType);
 }
 
 __attribute__((export_name("taglib_file_id3v2_frames"))) char **
