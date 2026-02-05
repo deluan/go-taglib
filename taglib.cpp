@@ -437,7 +437,7 @@ taglib_handle_raw_tags(uint32_t handle) {
   return empty;
 }
 
-struct HandleFileProperties {
+struct FileProperties {
   uint32_t lengthInMilliseconds;
   uint32_t channels;
   uint32_t sampleRate;
@@ -447,44 +447,27 @@ struct HandleFileProperties {
   char *codec;
 };
 
-__attribute__((export_name("taglib_handle_properties"))) HandleFileProperties *
-taglib_handle_properties(uint32_t handle) {
-  TagLib::FileRef *fileRef = getFileRef(handle);
-  if (!fileRef || fileRef->isNull() || !fileRef->audioProperties())
-    return nullptr;
-
-  HandleFileProperties *props =
-      static_cast<HandleFileProperties *>(malloc(sizeof(HandleFileProperties)));
-  if (!props)
-    return nullptr;
-
-  auto audioProperties = fileRef->audioProperties();
-  props->lengthInMilliseconds = audioProperties->lengthInMilliseconds();
-  props->channels = audioProperties->channels();
-  props->sampleRate = audioProperties->sampleRate();
-  props->bitrate = audioProperties->bitrate();
-
-  // Extract bits per sample for supported formats
-  int bitsPerSample = 0;
+static int extractBitsPerSample(const TagLib::AudioProperties *audioProperties) {
   if (const auto* apeProperties = dynamic_cast<const TagLib::APE::Properties*>(audioProperties))
-    bitsPerSample = apeProperties->bitsPerSample();
-  else if (const auto* asfProperties = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties))
-    bitsPerSample = asfProperties->bitsPerSample();
-  else if (const auto* flacProperties = dynamic_cast<const TagLib::FLAC::Properties*>(audioProperties))
-    bitsPerSample = flacProperties->bitsPerSample();
-  else if (const auto* mp4Properties = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties))
-    bitsPerSample = mp4Properties->bitsPerSample();
-  else if (const auto* wavPackProperties = dynamic_cast<const TagLib::WavPack::Properties*>(audioProperties))
-    bitsPerSample = wavPackProperties->bitsPerSample();
-  else if (const auto* aiffProperties = dynamic_cast<const TagLib::RIFF::AIFF::Properties*>(audioProperties))
-    bitsPerSample = aiffProperties->bitsPerSample();
-  else if (const auto* wavProperties = dynamic_cast<const TagLib::RIFF::WAV::Properties*>(audioProperties))
-    bitsPerSample = wavProperties->bitsPerSample();
-  else if (const auto* dsfProperties = dynamic_cast<const TagLib::DSF::Properties*>(audioProperties))
-    bitsPerSample = dsfProperties->bitsPerSample();
-  props->bitsPerSample = bitsPerSample > 0 ? bitsPerSample : 0;
+    return apeProperties->bitsPerSample();
+  if (const auto* asfProperties = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties))
+    return asfProperties->bitsPerSample();
+  if (const auto* flacProperties = dynamic_cast<const TagLib::FLAC::Properties*>(audioProperties))
+    return flacProperties->bitsPerSample();
+  if (const auto* mp4Properties = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties))
+    return mp4Properties->bitsPerSample();
+  if (const auto* wavPackProperties = dynamic_cast<const TagLib::WavPack::Properties*>(audioProperties))
+    return wavPackProperties->bitsPerSample();
+  if (const auto* aiffProperties = dynamic_cast<const TagLib::RIFF::AIFF::Properties*>(audioProperties))
+    return aiffProperties->bitsPerSample();
+  if (const auto* wavProperties = dynamic_cast<const TagLib::RIFF::WAV::Properties*>(audioProperties))
+    return wavProperties->bitsPerSample();
+  if (const auto* dsfProperties = dynamic_cast<const TagLib::DSF::Properties*>(audioProperties))
+    return dsfProperties->bitsPerSample();
+  return 0;
+}
 
-  // Extract codec for supported formats
+static char* extractCodec(const TagLib::AudioProperties *audioProperties) {
   TagLib::String codec;
   if (const auto* mp4Props = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties)) {
     switch (mp4Props->codec()) {
@@ -521,19 +504,17 @@ taglib_handle_properties(uint32_t handle) {
     else if (version >= 7)
       codec = "MPC7";
   }
-  props->codec = codec.isEmpty() ? nullptr : to_char_array(codec);
+  return codec.isEmpty() ? nullptr : to_char_array(codec);
+}
 
-  const auto &pictures = fileRef->complexProperties("PICTURE");
-
-  props->imageMetadata = nullptr;
+static char** extractImageMetadata(const TagLib::List<TagLib::VariantMap> &pictures) {
   if (pictures.isEmpty())
-    return props;
+    return nullptr;
 
   size_t len = pictures.size();
-  char **imageMetadata =
-      static_cast<char **>(malloc(sizeof(char *) * (len + 1)));
+  char **imageMetadata = static_cast<char **>(malloc(sizeof(char *) * (len + 1)));
   if (!imageMetadata)
-    return props;
+    return nullptr;
 
   size_t i = 0;
   for (const auto &p : pictures) {
@@ -545,10 +526,35 @@ taglib_handle_properties(uint32_t handle) {
     i++;
   }
   imageMetadata[len] = nullptr;
+  return imageMetadata;
+}
 
-  props->imageMetadata = imageMetadata;
+static FileProperties* readFileProperties(TagLib::FileRef &file) {
+  if (file.isNull() || !file.audioProperties())
+    return nullptr;
+
+  FileProperties *props = static_cast<FileProperties *>(malloc(sizeof(FileProperties)));
+  if (!props)
+    return nullptr;
+
+  auto audioProperties = file.audioProperties();
+  props->lengthInMilliseconds = audioProperties->lengthInMilliseconds();
+  props->channels = audioProperties->channels();
+  props->sampleRate = audioProperties->sampleRate();
+  props->bitrate = audioProperties->bitrate();
+  props->bitsPerSample = extractBitsPerSample(audioProperties);
+  props->codec = extractCodec(audioProperties);
+  props->imageMetadata = extractImageMetadata(file.complexProperties("PICTURE"));
 
   return props;
+}
+
+__attribute__((export_name("taglib_handle_properties"))) FileProperties *
+taglib_handle_properties(uint32_t handle) {
+  TagLib::FileRef *fileRef = getFileRef(handle);
+  if (!fileRef)
+    return nullptr;
+  return readFileProperties(*fileRef);
 }
 
 struct HandleByteData {
@@ -997,118 +1003,10 @@ taglib_file_write_tags(const char *filename, const char **tags, uint8_t opts) {
   return file.save();
 }
 
-struct FileProperties {
-  uint32_t lengthInMilliseconds;
-  uint32_t channels;
-  uint32_t sampleRate;
-  uint32_t bitrate;
-  uint32_t bitsPerSample;
-  char **imageMetadata;
-  char *codec;
-};
-
 __attribute__((export_name("taglib_file_read_properties"))) FileProperties *
 taglib_file_read_properties(const char *filename) {
   TagLib::FileRef file(filename);
-  if (file.isNull() || !file.audioProperties())
-    return nullptr;
-
-  FileProperties *props =
-      static_cast<FileProperties *>(malloc(sizeof(FileProperties)));
-  if (!props)
-    return nullptr;
-
-  auto audioProperties = file.audioProperties();
-  props->lengthInMilliseconds = audioProperties->lengthInMilliseconds();
-  props->channels = audioProperties->channels();
-  props->sampleRate = audioProperties->sampleRate();
-  props->bitrate = audioProperties->bitrate();
-
-  // Extract bits per sample for supported formats
-  int bitsPerSample = 0;
-  if (const auto* apeProperties = dynamic_cast<const TagLib::APE::Properties*>(audioProperties))
-    bitsPerSample = apeProperties->bitsPerSample();
-  else if (const auto* asfProperties = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties))
-    bitsPerSample = asfProperties->bitsPerSample();
-  else if (const auto* flacProperties = dynamic_cast<const TagLib::FLAC::Properties*>(audioProperties))
-    bitsPerSample = flacProperties->bitsPerSample();
-  else if (const auto* mp4Properties = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties))
-    bitsPerSample = mp4Properties->bitsPerSample();
-  else if (const auto* wavPackProperties = dynamic_cast<const TagLib::WavPack::Properties*>(audioProperties))
-    bitsPerSample = wavPackProperties->bitsPerSample();
-  else if (const auto* aiffProperties = dynamic_cast<const TagLib::RIFF::AIFF::Properties*>(audioProperties))
-    bitsPerSample = aiffProperties->bitsPerSample();
-  else if (const auto* wavProperties = dynamic_cast<const TagLib::RIFF::WAV::Properties*>(audioProperties))
-    bitsPerSample = wavProperties->bitsPerSample();
-  else if (const auto* dsfProperties = dynamic_cast<const TagLib::DSF::Properties*>(audioProperties))
-    bitsPerSample = dsfProperties->bitsPerSample();
-  props->bitsPerSample = bitsPerSample > 0 ? bitsPerSample : 0;
-
-  // Extract codec for supported formats
-  TagLib::String codec;
-  if (const auto* mp4Props = dynamic_cast<const TagLib::MP4::Properties*>(audioProperties)) {
-    switch (mp4Props->codec()) {
-      case TagLib::MP4::Properties::AAC: codec = "AAC"; break;
-      case TagLib::MP4::Properties::ALAC: codec = "ALAC"; break;
-      default: break;
-    }
-  }
-  else if (const auto* asfProps = dynamic_cast<const TagLib::ASF::Properties*>(audioProperties)) {
-    switch (asfProps->codec()) {
-      case TagLib::ASF::Properties::WMA1: codec = "WMA1"; break;
-      case TagLib::ASF::Properties::WMA2: codec = "WMA2"; break;
-      case TagLib::ASF::Properties::WMA9Pro: codec = "WMA9Pro"; break;
-      case TagLib::ASF::Properties::WMA9Lossless: codec = "WMA9Lossless"; break;
-      default: break;
-    }
-  }
-  else if (const auto* mpegProps = dynamic_cast<const TagLib::MPEG::Properties*>(audioProperties)) {
-    if (mpegProps->isADTS()) {
-      codec = "AAC";
-    } else {
-      switch (mpegProps->layer()) {
-        case 1: codec = "MP1"; break;
-        case 2: codec = "MP2"; break;
-        case 3: codec = "MP3"; break;
-        default: break;
-      }
-    }
-  }
-  else if (const auto* mpcProps = dynamic_cast<const TagLib::MPC::Properties*>(audioProperties)) {
-    int version = mpcProps->mpcVersion();
-    if (version >= 8)
-      codec = "MPC8";
-    else if (version >= 7)
-      codec = "MPC7";
-  }
-  props->codec = codec.isEmpty() ? nullptr : to_char_array(codec);
-
-  const auto &pictures = file.complexProperties("PICTURE");
-
-  props->imageMetadata = nullptr;
-  if (pictures.isEmpty())
-    return props;
-
-  size_t len = pictures.size();
-  char **imageMetadata =
-      static_cast<char **>(malloc(sizeof(char *) * (len + 1)));
-  if (!imageMetadata)
-    return props;
-
-  size_t i = 0;
-  for (const auto &p : pictures) {
-    TagLib::String type = p["pictureType"].toString();
-    TagLib::String desc = p["description"].toString();
-    TagLib::String mime = p["mimeType"].toString();
-    TagLib::String row = type + "\t" + desc + "\t" + mime;
-    imageMetadata[i] = to_char_array(row);
-    i++;
-  }
-  imageMetadata[len] = nullptr;
-
-  props->imageMetadata = imageMetadata;
-
-  return props;
+  return readFileProperties(file);
 }
 
 struct ByteData {
