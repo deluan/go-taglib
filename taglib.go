@@ -108,6 +108,7 @@ type OpenOption func(*openOptions)
 
 type openOptions struct {
 	readStyle ReadStyle
+	filename  string // hint for format detection in OpenStream
 }
 
 // WithReadStyle sets the read style for audio properties.
@@ -115,6 +116,15 @@ type openOptions struct {
 func WithReadStyle(style ReadStyle) OpenOption {
 	return func(o *openOptions) {
 		o.readStyle = style
+	}
+}
+
+// WithFilename provides a filename hint for format detection when using [OpenStream].
+// TagLib uses the file extension (e.g., ".opus", ".flac") to assist format detection.
+// Without this hint, TagLib relies on content-sniffing alone, which may fail for some formats.
+func WithFilename(name string) OpenOption {
+	return func(o *openOptions) {
+		o.filename = name
 	}
 }
 
@@ -168,7 +178,7 @@ func OpenStream(r io.ReadSeeker, opts ...OpenOption) (*File, error) {
 	}
 
 	var result wasmOpenResult
-	if err := mod.call("taglib_stream_open", &result, wasmUint32(streamId), wasmUint8(o.readStyle)); err != nil {
+	if err := mod.call("taglib_stream_open", &result, wasmUint32(streamId), wasmString(o.filename), wasmUint8(o.readStyle)); err != nil {
 		mod.close()
 		unregisterStream(streamId)
 		return nil, fmt.Errorf("call: %w", err)

@@ -101,7 +101,7 @@ class GoIOStream : public TagLib::IOStream {
 public:
   static constexpr size_t BUFFER_SIZE = 32 * 1024; // 32KB - optimal for all formats
 
-  GoIOStream(uint32_t streamId)
+  GoIOStream(uint32_t streamId, const char *filename = "")
     : m_streamId(streamId)
     , m_readOnly(true)
     , m_position(0)
@@ -109,6 +109,7 @@ public:
     , m_buffer(nullptr)
     , m_bufStart(-1)
     , m_bufLen(0)
+    , m_filename(filename ? filename : "")
   {}
 
   ~GoIOStream() {
@@ -116,7 +117,7 @@ public:
   }
 
   TagLib::FileName name() const override {
-    return "";
+    return m_filename.c_str();
   }
 
   TagLib::ByteVector readBlock(size_t length) override {
@@ -206,6 +207,7 @@ private:
   char *m_buffer;
   int64_t m_bufStart;
   size_t m_bufLen;
+  std::string m_filename;
 };
 
 // Handle management
@@ -304,8 +306,8 @@ taglib_file_close(uint32_t handle) {
 
 // Open a file from a Go io.ReadSeeker stream
 __attribute__((export_name("taglib_stream_open"))) OpenResult *
-taglib_stream_open(uint32_t streamId, uint8_t readStyle) {
-  GoIOStream *stream = new GoIOStream(streamId);
+taglib_stream_open(uint32_t streamId, const char *filename, uint8_t readStyle) {
+  GoIOStream *stream = new GoIOStream(streamId, filename);
   auto style = static_cast<TagLib::AudioProperties::ReadStyle>(readStyle);
 
   // FileRef takes ownership of the stream pointer for file operations

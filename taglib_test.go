@@ -249,6 +249,23 @@ func TestOpenStream(t *testing.T) {
 	}
 }
 
+func TestOpenStreamWithFilename(t *testing.T) {
+	t.Parallel()
+
+	// OPUS format detection requires a filename hint because TagLib cannot
+	// reliably detect OPUS via content-sniffing alone when using streams.
+	r := bytes.NewReader(egOpus)
+	f, err := taglib.OpenStream(r, taglib.WithFilename("test.opus"))
+	nilErr(t, err)
+	defer f.Close()
+
+	eq(t, taglib.FormatOggOpus, f.Format())
+	tags := f.Tags()
+	eq(t, tags[taglib.Title][0], "Test")
+	eq(t, tags[taglib.Artist][0], "Test Artist")
+	eq(t, tags[taglib.Album][0], "Test Album")
+}
+
 func TestOpenStreamConcurrent(t *testing.T) {
 	t.Parallel()
 
@@ -1111,6 +1128,8 @@ var (
 	egWAV []byte
 	//go:embed testdata/eg.aiff
 	egAIFF []byte
+	//go:embed testdata/eg.opus
+	egOpus []byte
 	//go:embed testdata/eg.wma
 	egWMA []byte
 	//go:embed testdata/cover.jpg
