@@ -1,7 +1,7 @@
 FROM ghcr.io/webassembly/wasi-sdk:wasi-sdk-27
 
 RUN apt-get update && \
-	apt-get install -y --no-install-recommends curl && \
+	apt-get install -y --no-install-recommends curl patch && \
 	rm -rf /var/lib/apt/lists/*
 
 ARG BINARYEN_VERSION=124

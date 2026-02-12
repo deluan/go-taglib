@@ -1,0 +1,56 @@
+Build-time patch for taglib's tstring.cpp.
+Replaces try-catch blocks with non-throwing alternatives, required because
+C++ exceptions are not supported in the WASM build (__cxa_allocate_exception
+is stubbed with panic).
+
+Two try-catch blocks are patched:
+1. copyFromUTF8(): validates UTF-8 first, uses unchecked conversion,
+   and sanitizes invalid UTF-8 with replacement characters as fallback.
+2. String::data(UTF8): uses unchecked UTF-16 to UTF-8 conversion
+   (internal data is always valid UTF-16).
+
+--- a/taglib/taglib/toolkit/tstring.cpp
++++ b/taglib/taglib/toolkit/tstring.cpp
+@@ -61,14 +61,18 @@
+   {
+     data.resize(length);
+
+-    try {
+-      const std::wstring::iterator dstEnd = utf8::utf8to16(s, s + length, data.begin());
++    if(utf8::is_valid(s, s + length)) {
++      const std::wstring::iterator dstEnd = utf8::unchecked::utf8to16(s, s + length, data.begin());
+       data.resize(dstEnd - data.begin());
+     }
+-    catch(const utf8::exception &e) {
+-      const String message(e.what());
+-      debug("String::copyFromUTF8() - UTF8-CPP error: " + message);
+-      data.clear();
++    else {
++      debug("String::copyFromUTF8() - Invalid UTF-8 data, sanitizing");
++      std::string sanitized;
++      sanitized.reserve(length);
++      utf8::unchecked::replace_invalid(s, s + length, std::back_inserter(sanitized));
++      data.resize(sanitized.size());
++      const std::wstring::iterator dstEnd = utf8::unchecked::utf8to16(sanitized.begin(), sanitized.end(), data.begin());
++      data.resize(dstEnd - data.begin());
+     }
+   }
+
+@@ -418,15 +422,8 @@
+     {
+       ByteVector v(size() * 4, 0);
+
+-      try {
+-        const auto dstEnd = utf8::utf16to8(begin(), end(), v.begin());
+-        v.resize(static_cast<unsigned int>(dstEnd - v.begin()));
+-      }
+-      catch(const utf8::exception &e) {
+-        const String message(e.what());
+-        debug("String::data() - UTF8-CPP error: " + message);
+-        v.clear();
+-      }
++      const auto dstEnd = utf8::unchecked::utf16to8(begin(), end(), v.begin());
++      v.resize(static_cast<unsigned int>(dstEnd - v.begin()));
+
+       return v;
+     }

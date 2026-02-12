@@ -266,6 +266,30 @@ func TestOpenStreamWithFilename(t *testing.T) {
 	eq(t, tags[taglib.Album][0], "Test Album")
 }
 
+func TestWAVLatin1InfoChunk(t *testing.T) {
+	t.Parallel()
+
+	// WAV files with RIFF INFO chunks encoded in Latin-1 (ISO-8859-1) should
+	// be readable without crashing. The "ö" character (0xF6 in Latin-1) is not
+	// valid UTF-8 and previously caused a crash in the WASM build. Invalid
+	// bytes are now replaced with the Unicode replacement character (U+FFFD).
+	t.Run("file", func(t *testing.T) {
+		path := tmpf(t, egWAVLatin1, "eg-latin1.wav")
+		tags, err := taglib.ReadTags(path)
+		nilErr(t, err)
+		eq(t, tags["TITLE"][0], "Aufl\uFFFDsen")
+	})
+
+	t.Run("stream", func(t *testing.T) {
+		r := bytes.NewReader(egWAVLatin1)
+		f, err := taglib.OpenStream(r, taglib.WithFilename("test.wav"))
+		nilErr(t, err)
+		defer f.Close()
+		tags := f.Tags()
+		eq(t, tags["TITLE"][0], "Aufl\uFFFDsen")
+	})
+}
+
 func TestOpenStreamConcurrent(t *testing.T) {
 	t.Parallel()
 
@@ -1132,6 +1156,8 @@ var (
 	egOpus []byte
 	//go:embed testdata/eg.wma
 	egWMA []byte
+	//go:embed testdata/eg-latin1-info.wav
+	egWAVLatin1 []byte
 	//go:embed testdata/cover.jpg
 	coverJPG []byte
 	//go:embed testdata/eg_lyrics.mp3
