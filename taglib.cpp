@@ -354,12 +354,8 @@ static FileFormat get_format(uint32_t handle) {
   return it->second.format;
 }
 
-// For Matroska files, TagLib's properties() may miss tags written by ffmpeg.
-// ffmpeg uses tag names like "ALBUM", "ARTIST" directly as SimpleTag names,
-// while the Matroska spec (and TagLib) expects e.g. "TITLE" at Album level
-// for the album name. TagLib drops unrecognized names at non-Track levels.
-// This helper adds missing properties from the raw SimpleTags and the
-// segment title fallback.
+// Supplements Matroska properties() with tags that TagLib misses from ffmpeg files:
+// non-standard Album-level SimpleTags, track-bound tags, and segment title fallback.
 static TagLib::PropertyMap enrich_matroska_properties(TagLib::FileRef &fileRef) {
   auto properties = fileRef.properties();
   auto *mkFile = dynamic_cast<TagLib::Matroska::File *>(fileRef.file());
@@ -370,10 +366,7 @@ static TagLib::PropertyMap enrich_matroska_properties(TagLib::FileRef &fileRef) 
   if (!mkTag)
     return properties;
 
-  // Matroska SimpleTag names used at Album level by TagLib's translation table.
-  // These are the spec-compliant names that TagLib already translates to
-  // property keys (e.g. "TITLE" at Album -> "ALBUM"). We skip these to
-  // avoid duplicating what properties() already returns.
+  // Album-level SimpleTag names already handled by TagLib's translation table.
   static const TagLib::StringList knownAlbumTags = {
     "TITLE", "ARTIST", "PART_NUMBER", "TOTAL_PARTS", "TITLESORT",
     "ARTISTSORT", "REPLAYGAIN_GAIN", "REPLAYGAIN_PEAK",
@@ -382,23 +375,36 @@ static TagLib::PropertyMap enrich_matroska_properties(TagLib::FileRef &fileRef) 
     "MUSICBRAINZ_RELEASEGROUPID",
   };
 
-  // Scan SimpleTags at Album level for ffmpeg-style names that TagLib dropped.
-  // ffmpeg writes e.g. "ALBUM" as a SimpleTag name at Album level (50),
-  // but TagLib expects "TITLE" at Album level and drops "ALBUM".
+  // Pick up Album-level SimpleTags with non-standard names (e.g. ffmpeg writes
+  // "ALBUM" instead of spec-compliant "TITLE" at Album level).
   for (const auto &st : mkTag->simpleTagsList()) {
     if (st.type() != TagLib::Matroska::SimpleTag::StringType || st.trackUid() != 0)
       continue;
     if (st.targetTypeValue() != TagLib::Matroska::SimpleTag::Album)
       continue;
     TagLib::String name = st.name();
-    if (name.isEmpty() || properties.contains(name))
-      continue;
-    if (knownAlbumTags.contains(name))
+    if (name.isEmpty() || properties.contains(name) || knownAlbumTags.contains(name))
       continue;
     properties[name].append(st.toString());
   }
 
-  // Add segment title as TITLE if still missing
+  // Pick up track-bound tags (e.g. REPLAYGAIN_*) via complexProperties().
+  // properties() only reads trackUid==0; complexProperties() has the rest.
+  static const TagLib::StringList internalTrackTags = {
+    "DURATION", "ENCODER", "ENCODER_SETTINGS",
+  };
+  for (const auto &key : fileRef.complexPropertyKeys()) {
+    if (key == "PICTURE" || properties.contains(key) || internalTrackTags.contains(key))
+      continue;
+    for (const auto &prop : fileRef.complexProperties(key)) {
+      auto it = prop.find("value");
+      if (it != prop.end() && it->second.type() == TagLib::Variant::String) {
+        properties[key].append(it->second.value<TagLib::String>());
+      }
+    }
+  }
+
+  // Segment title fallback.
   if (!properties.isEmpty() && !properties.contains("TITLE")) {
     auto *tag = fileRef.tag();
     if (tag && !tag->title().isEmpty())

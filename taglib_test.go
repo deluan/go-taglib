@@ -1160,12 +1160,14 @@ var (
 	egWMA []byte
 	//go:embed testdata/eg-latin1-info.wav
 	egWAVLatin1 []byte
-	//go:embed testdata/cover.jpg
-	coverJPG []byte
 	//go:embed testdata/eg_lyrics.mp3
 	egMP3Lyrics []byte
 	//go:embed testdata/eg.mka
 	egMKA []byte
+	//go:embed testdata/eg_track_tags.mka
+	egMKATrackTags []byte
+	//go:embed testdata/cover.jpg
+	coverJPG []byte
 )
 
 func testPaths(t testing.TB) []string {
@@ -1553,6 +1555,26 @@ func TestMatroskaReadWrite(t *testing.T) {
 
 	eq(t, tags[taglib.Title][0], "MKA Title")
 	eq(t, tags[taglib.Artist][0], "MKA Artist")
+}
+
+func TestMatroskaTrackBoundTags(t *testing.T) {
+	t.Parallel()
+
+	// ffmpeg writes some tags (like REPLAYGAIN_*) bound to a specific track UID
+	// rather than trackUid=0. Verify these are still read correctly.
+	path := tmpf(t, egMKATrackTags, "eg_track_tags.mka")
+
+	tags, err := taglib.ReadTags(path)
+	nilErr(t, err)
+
+	eq(t, tags["REPLAYGAIN_TRACK_GAIN"][0], "6.59 dB")
+	eq(t, tags["REPLAYGAIN_TRACK_PEAK"][0], "0.091646")
+	eq(t, tags["REPLAYGAIN_ALGORITHM"][0], "replaygain")
+	eq(t, tags["REPLAYGAIN_REFERENCE_LOUDNESS"][0], "-18.00 LUFS")
+
+	// Internal track metadata (DURATION, ENCODER) should NOT leak through
+	_, hasDuration := tags["DURATION"]
+	eq(t, hasDuration, false)
 }
 
 func TestFileFormatString(t *testing.T) {
