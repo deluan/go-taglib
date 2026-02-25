@@ -1577,6 +1577,44 @@ func TestMatroskaTrackBoundTags(t *testing.T) {
 	eq(t, hasDuration, false)
 }
 
+func TestMatroskaTrackBoundTagsClear(t *testing.T) {
+	t.Parallel()
+
+	// Track-bound tags (e.g. REPLAYGAIN_*) should be removed by WriteTags with Clear.
+	path := tmpf(t, egMKATrackTags, "eg_track_tags.mka")
+	trackTags := []string{
+		"REPLAYGAIN_TRACK_GAIN",
+		"REPLAYGAIN_TRACK_PEAK",
+		"REPLAYGAIN_ALGORITHM",
+		"REPLAYGAIN_REFERENCE_LOUDNESS",
+	}
+
+	// Verify track-bound tags are present before clearing
+	tags, err := taglib.ReadTags(path)
+	nilErr(t, err)
+	for _, key := range trackTags {
+		if _, ok := tags[key]; !ok {
+			t.Fatalf("expected %s to be present before clear", key)
+		}
+	}
+
+	// Write with Clear — should remove all tags including track-bound ones
+	err = taglib.WriteTags(path, map[string][]string{
+		"TITLE": {"New Title"},
+	}, taglib.Clear)
+	nilErr(t, err)
+
+	// Read back and verify only TITLE remains
+	tags, err = taglib.ReadTags(path)
+	nilErr(t, err)
+	eq(t, tags["TITLE"][0], "New Title")
+	for _, key := range trackTags {
+		if _, ok := tags[key]; ok {
+			t.Errorf("expected %s to be cleared, but it was still present", key)
+		}
+	}
+}
+
 func TestFileFormatString(t *testing.T) {
 	t.Parallel()
 

@@ -694,6 +694,16 @@ static bool write_tags(TagLib::FileRef &file, const char **tags, uint8_t opts) {
     }
   }
 
+  // For Matroska, clearSimpleTags() removes all tags including track-bound
+  // ones that setProperties() alone would preserve.
+  if ((opts & CLEAR)) {
+    auto *mkFile = dynamic_cast<TagLib::Matroska::File *>(file.file());
+    if (mkFile) {
+      auto *mkTag = dynamic_cast<TagLib::Matroska::Tag *>(mkFile->tag());
+      if (mkTag)
+        mkTag->clearSimpleTags();
+    }
+  }
   file.setProperties(properties);
   return file.save();
 }
