@@ -23,6 +23,20 @@ import (
 	"go.senan.xyz/taglib"
 )
 
+func TestVersion(t *testing.T) {
+	t.Parallel()
+
+	version := taglib.Version()
+	if version == "" || version == "unknown" {
+		t.Fatalf("expected a valid version string, got %q", version)
+	}
+	parts := strings.Split(version, ".")
+	if len(parts) != 3 {
+		t.Fatalf("expected version with 3 parts (major.minor.patch), got %q", version)
+	}
+	t.Logf("TagLib version: %s", version)
+}
+
 func TestInvalid(t *testing.T) {
 	t.Parallel()
 

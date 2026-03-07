@@ -24,6 +24,25 @@ var binaryPath string
 var ErrInvalidFile = fmt.Errorf("invalid file")
 var ErrSavingFile = fmt.Errorf("can't save file")
 
+// Version returns the version of the embedded TagLib library (e.g., "2.2.1").
+func Version() string {
+	return getVersionOnce()
+}
+
+var getVersionOnce = sync.OnceValue(func() string {
+	mod, err := newModuleForStream()
+	if err != nil {
+		return "unknown"
+	}
+	defer mod.close()
+
+	var version wasmString
+	if err := mod.call("taglib_version", &version); err != nil {
+		return "unknown"
+	}
+	return string(version)
+})
+
 // FileFormat represents the detected audio file format.
 type FileFormat uint8
 

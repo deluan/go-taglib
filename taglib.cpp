@@ -259,6 +259,19 @@ TagLib::String to_string(const char *s) {
   return TagLib::String(s, TagLib::String::UTF8);
 }
 
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+static const char *version_string =
+    TOSTRING(TAGLIB_MAJOR_VERSION) "."
+    TOSTRING(TAGLIB_MINOR_VERSION) "."
+    TOSTRING(TAGLIB_PATCH_VERSION);
+
+__attribute__((export_name("taglib_version"))) const char *
+taglib_version() {
+  return version_string;
+}
+
 __attribute__((export_name("malloc"))) void *exported_malloc(size_t size) {
   return malloc(size);
 }
