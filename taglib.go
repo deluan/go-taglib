@@ -1100,38 +1100,10 @@ type module struct {
 
 func newModule(dir string) (module, error)   { return newModuleOpt(dir, false) }
 func newModuleRO(dir string) (module, error) { return newModuleOpt(dir, true) }
+func newModuleForStream() (module, error)    { return newModuleOpt("", true) }
+
+// newModuleOpt creates a module with optional directory mount. If dir is empty, no filesystem access is provided.
 func newModuleOpt(dir string, readOnly bool) (module, error) {
-	rt, err := getRuntimeOnce()
-	if err != nil {
-		return module{}, fmt.Errorf("get runtime once: %w", err)
-	}
-
-	fsConfig := wazero.NewFSConfig()
-	if readOnly {
-		fsConfig = fsConfig.WithReadOnlyDirMount(dir, wasmPath(dir))
-	} else {
-		fsConfig = fsConfig.WithDirMount(dir, wasmPath(dir))
-	}
-
-	cfg := wazero.
-		NewModuleConfig().
-		WithName("").
-		WithStartFunctions("_initialize").
-		WithFSConfig(fsConfig)
-
-	ctx := context.Background()
-	mod, err := rt.InstantiateModule(ctx, rt.CompiledModule, cfg)
-	if err != nil {
-		return module{}, err
-	}
-
-	return module{
-		mod: mod,
-	}, nil
-}
-
-// newModuleForStream creates a module without filesystem mounts for stream-based access
-func newModuleForStream() (module, error) {
 	rt, err := getRuntimeOnce()
 	if err != nil {
 		return module{}, fmt.Errorf("get runtime once: %w", err)
@@ -1141,6 +1113,16 @@ func newModuleForStream() (module, error) {
 		NewModuleConfig().
 		WithName("").
 		WithStartFunctions("_initialize")
+
+	if dir != "" {
+		fsConfig := wazero.NewFSConfig()
+		if readOnly {
+			fsConfig = fsConfig.WithReadOnlyDirMount(dir, wasmPath(dir))
+		} else {
+			fsConfig = fsConfig.WithDirMount(dir, wasmPath(dir))
+		}
+		cfg = cfg.WithFSConfig(fsConfig)
+	}
 
 	ctx := context.Background()
 	mod, err := rt.InstantiateModule(ctx, rt.CompiledModule, cfg)
