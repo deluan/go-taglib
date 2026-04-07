@@ -1182,6 +1182,8 @@ var (
 	egMKATrackTags []byte
 	//go:embed testdata/cover.jpg
 	coverJPG []byte
+	//go:embed testdata/eg_zero_length_id3v2_frames.mp3
+	egMP3ZeroLengthFrames []byte
 )
 
 func testPaths(t testing.TB) []string {
@@ -1627,6 +1629,43 @@ func TestMatroskaTrackBoundTagsClear(t *testing.T) {
 			t.Errorf("expected %s to be cleared, but it was still present", key)
 		}
 	}
+}
+
+func TestZeroLengthID3v2Frames(t *testing.T) {
+	t.Parallel()
+
+	// The test file has zero-length URL frames (WOAF, WOAR, WOAS) before the
+	// real ID3v2 text frames, and no ID3v1 fallback tag. This reproduces a bug
+	// where TagLib treats zero-length frames as end-of-tag and stops parsing.
+	path := tmpf(t, egMP3ZeroLengthFrames, "eg_zero_length_id3v2_frames.mp3")
+
+	t.Run("file", func(t *testing.T) {
+		f, err := taglib.OpenReadOnly(path)
+		nilErr(t, err)
+		defer f.Close()
+
+		raw := f.RawTags()
+		if raw["TALB"] == nil || raw["TALB"][0] != "example album" {
+			t.Fatalf("expected raw TALB='example album', got %v", raw["TALB"])
+		}
+		if raw["TPE1"] == nil || raw["TPE1"][0] != "example artist" {
+			t.Fatalf("expected raw TPE1='example artist', got %v", raw["TPE1"])
+		}
+	})
+
+	t.Run("stream", func(t *testing.T) {
+		f, err := taglib.OpenStream(bytes.NewReader(egMP3ZeroLengthFrames))
+		nilErr(t, err)
+		defer f.Close()
+
+		raw := f.RawTags()
+		if raw["TALB"] == nil || raw["TALB"][0] != "example album" {
+			t.Fatalf("expected raw TALB='example album', got %v", raw["TALB"])
+		}
+		if raw["TPE1"] == nil || raw["TPE1"][0] != "example artist" {
+			t.Fatalf("expected raw TPE1='example artist', got %v", raw["TPE1"])
+		}
+	})
 }
 
 func TestFileFormatString(t *testing.T) {

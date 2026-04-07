@@ -1,0 +1,33 @@
+Build-time patch for taglib's id3v2tag.cpp.
+Fixes parsing of ID3v2 tags that contain zero-length frames (e.g. WOAF, WOAR,
+WOAS with size=0). These are produced by taggers like MediaMonkey. Without this patch,
+TagLib treats zero-length frames as end-of-tag and stops parsing, causing all
+subsequent frames to be lost.
+
+The fix skips over invalid/zero-length frames instead of aborting the parse loop.
+
+--- a/taglib/taglib/mpeg/id3v2/id3v2tag.cpp
++++ b/taglib/taglib/mpeg/id3v2/id3v2tag.cpp
+@@ -876,8 +876,11 @@
+     unsigned int headerVersion = tagHeader->majorVersion();
+     Frame *frame = d->factory->createFrame(origData, tagHeader);
+
+-    if(!frame)
+-      return;
++    if(!frame) {
++      Frame::Header frameHeader(origData, headerVersion);
++      frameDataPosition += frameHeader.frameSize() + frameHeader.size();
++      continue;
++    }
+
+     // Checks to make sure that frame parsed correctly.
+
+@@ -884,7 +887,8 @@
+     if(frame->size() <= 0) {
+       delete frame;
+-      return;
++      frameDataPosition += frame->headerSize();
++      continue;
+     }
+
+     if(frame->header()->version() == headerVersion) {
