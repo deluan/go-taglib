@@ -27,7 +27,7 @@ func BenchmarkOpen(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			f.Close()
+			_ = f.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -35,7 +35,7 @@ func BenchmarkOpen(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				f.Close()
+				_ = f.Close()
 			}
 		})
 
@@ -46,8 +46,8 @@ func BenchmarkOpen(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			f.Close()
-			file.Close()
+			_ = f.Close()
+			_ = file.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -56,8 +56,8 @@ func BenchmarkOpen(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				f.Close()
-				file.Close()
+				_ = f.Close()
+				_ = file.Close()
 			}
 		})
 	}
@@ -74,7 +74,7 @@ func BenchmarkReadTags(b *testing.B) {
 				b.Fatal(err)
 			}
 			_ = f.Tags()
-			f.Close()
+			_ = f.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -83,7 +83,7 @@ func BenchmarkReadTags(b *testing.B) {
 					b.Fatal(err)
 				}
 				_ = f.Tags()
-				f.Close()
+				_ = f.Close()
 			}
 		})
 
@@ -95,8 +95,8 @@ func BenchmarkReadTags(b *testing.B) {
 				b.Fatal(err)
 			}
 			_ = f.Tags()
-			f.Close()
-			file.Close()
+			_ = f.Close()
+			_ = file.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -106,8 +106,8 @@ func BenchmarkReadTags(b *testing.B) {
 					b.Fatal(err)
 				}
 				_ = f.Tags()
-				f.Close()
-				file.Close()
+				_ = f.Close()
+				_ = file.Close()
 			}
 		})
 	}
@@ -124,7 +124,7 @@ func BenchmarkReadProperties(b *testing.B) {
 				b.Fatal(err)
 			}
 			_ = f.Properties()
-			f.Close()
+			_ = f.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -133,7 +133,7 @@ func BenchmarkReadProperties(b *testing.B) {
 					b.Fatal(err)
 				}
 				_ = f.Properties()
-				f.Close()
+				_ = f.Close()
 			}
 		})
 
@@ -145,8 +145,8 @@ func BenchmarkReadProperties(b *testing.B) {
 				b.Fatal(err)
 			}
 			_ = f.Properties()
-			f.Close()
-			file.Close()
+			_ = f.Close()
+			_ = file.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -156,8 +156,8 @@ func BenchmarkReadProperties(b *testing.B) {
 					b.Fatal(err)
 				}
 				_ = f.Properties()
-				f.Close()
-				file.Close()
+				_ = f.Close()
+				_ = file.Close()
 			}
 		})
 	}
@@ -175,7 +175,7 @@ func BenchmarkReadAll(b *testing.B) {
 			}
 			_ = f.Tags()
 			_ = f.Properties()
-			f.Close()
+			_ = f.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -185,7 +185,7 @@ func BenchmarkReadAll(b *testing.B) {
 				}
 				_ = f.Tags()
 				_ = f.Properties()
-				f.Close()
+				_ = f.Close()
 			}
 		})
 
@@ -198,8 +198,8 @@ func BenchmarkReadAll(b *testing.B) {
 			}
 			_ = f.Tags()
 			_ = f.Properties()
-			f.Close()
-			file.Close()
+			_ = f.Close()
+			_ = file.Close()
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -210,8 +210,8 @@ func BenchmarkReadAll(b *testing.B) {
 				}
 				_ = f.Tags()
 				_ = f.Properties()
-				f.Close()
-				file.Close()
+				_ = f.Close()
+				_ = file.Close()
 			}
 		})
 	}

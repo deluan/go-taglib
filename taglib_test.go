@@ -223,7 +223,7 @@ func TestOpenStream(t *testing.T) {
 			r := bytes.NewReader(data)
 			f, err := taglib.OpenStream(r)
 			nilErr(t, err)
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			// Read tags via stream
 			streamTags := f.Tags()
@@ -271,7 +271,7 @@ func TestOpenStreamWithFilename(t *testing.T) {
 	r := bytes.NewReader(egOpus)
 	f, err := taglib.OpenStream(r, taglib.WithFilename("test.opus"))
 	nilErr(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	eq(t, taglib.FormatOggOpus, f.Format())
 	tags := f.Tags()
@@ -298,7 +298,7 @@ func TestWAVLatin1InfoChunk(t *testing.T) {
 		r := bytes.NewReader(egWAVLatin1)
 		f, err := taglib.OpenStream(r, taglib.WithFilename("test.wav"))
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		tags := f.Tags()
 		eq(t, tags["TITLE"][0], "Aufl\uFFFDsen")
 	})
@@ -334,7 +334,7 @@ func TestOpenStreamConcurrent(t *testing.T) {
 			}
 			_ = f.Tags()
 			_ = f.Properties()
-			f.Close()
+			_ = f.Close()
 		}()
 	}
 	wg.Wait()
@@ -1292,7 +1292,7 @@ func TestFileOpen(t *testing.T) {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			f, err := taglib.OpenReadOnly(path)
 			nilErr(t, err)
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			// Verify format is detected
 			format := f.Format()
@@ -1327,7 +1327,7 @@ func TestFileTags(t *testing.T) {
 			// Read using File handle
 			f, err := taglib.OpenReadOnly(path)
 			nilErr(t, err)
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			tags := f.Tags()
 			if tags["ARTIST"][0] != "Test Artist" {
@@ -1348,7 +1348,7 @@ func TestFileProperties(t *testing.T) {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			f, err := taglib.OpenReadOnly(path)
 			nilErr(t, err)
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			props := f.Properties()
 			if props.Channels == 0 {
@@ -1369,7 +1369,7 @@ func TestFilePropertiesCodec(t *testing.T) {
 		path := tmpf(t, egMP3, "eg.mp3")
 		f, err := taglib.OpenReadOnly(path)
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		eq(t, "MP3", f.Properties().Codec)
 	})
 
@@ -1378,7 +1378,7 @@ func TestFilePropertiesCodec(t *testing.T) {
 		path := tmpf(t, egM4a, "eg.m4a")
 		f, err := taglib.OpenReadOnly(path)
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		eq(t, "AAC", f.Properties().Codec)
 	})
 
@@ -1387,7 +1387,7 @@ func TestFilePropertiesCodec(t *testing.T) {
 		path := tmpf(t, egWMA, "eg.wma")
 		f, err := taglib.OpenReadOnly(path)
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		eq(t, "WMA2", f.Properties().Codec)
 	})
 }
@@ -1400,7 +1400,7 @@ func TestFileRawTags(t *testing.T) {
 		path := tmpf(t, egMP3, "eg.mp3")
 		f, err := taglib.OpenReadOnly(path)
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		eq(t, f.Format(), taglib.FormatMPEG)
 		raw := f.RawTags()
@@ -1415,7 +1415,7 @@ func TestFileRawTags(t *testing.T) {
 		path := tmpf(t, egM4a, "eg.m4a")
 		f, err := taglib.OpenReadOnly(path)
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		eq(t, f.Format(), taglib.FormatMP4)
 		raw := f.RawTags()
@@ -1430,7 +1430,7 @@ func TestFileRawTags(t *testing.T) {
 		path := tmpf(t, egFLAC, "eg.flac")
 		f, err := taglib.OpenReadOnly(path)
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		eq(t, f.Format(), taglib.FormatFLAC)
 		raw := f.RawTags()
@@ -1446,7 +1446,7 @@ func TestFileAllTags(t *testing.T) {
 	path := tmpf(t, egMP3, "eg.mp3")
 	f, err := taglib.OpenReadOnly(path)
 	nilErr(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	all := f.AllTags()
 	eq(t, all.Format, taglib.FormatMPEG)
@@ -1466,7 +1466,7 @@ func TestFileWriteTags(t *testing.T) {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			f, err := taglib.Open(path)
 			nilErr(t, err)
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			// Write tags
 			err = f.WriteTags(map[string][]string{
@@ -1490,7 +1490,7 @@ func TestFileImage(t *testing.T) {
 	path := tmpf(t, egMP3, "eg.mp3")
 	f, err := taglib.OpenReadOnly(path)
 	nilErr(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// Read image (may be empty if test file has no image)
 	img, err := f.Image(0)
@@ -1509,7 +1509,7 @@ func TestFileEfficiency(t *testing.T) {
 	// Using File handle - single module for all operations
 	f, err := taglib.OpenReadOnly(path)
 	nilErr(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	// All these operations use the same module
 	tags := f.Tags()
@@ -1542,7 +1542,7 @@ func TestMatroskaFormat(t *testing.T) {
 	// Test format detection via File handle
 	f, err := taglib.OpenReadOnly(path)
 	nilErr(t, err)
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	eq(t, taglib.FormatMatroska, f.Format())
 	eq(t, "Matroska", f.Format().String())
@@ -1642,7 +1642,7 @@ func TestZeroLengthID3v2Frames(t *testing.T) {
 	t.Run("file", func(t *testing.T) {
 		f, err := taglib.OpenReadOnly(path)
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		raw := f.RawTags()
 		if raw["TALB"] == nil || raw["TALB"][0] != "example album" {
@@ -1656,7 +1656,7 @@ func TestZeroLengthID3v2Frames(t *testing.T) {
 	t.Run("stream", func(t *testing.T) {
 		f, err := taglib.OpenStream(bytes.NewReader(egMP3ZeroLengthFrames))
 		nilErr(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 
 		raw := f.RawTags()
 		if raw["TALB"] == nil || raw["TALB"][0] != "example album" {
