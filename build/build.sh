@@ -10,8 +10,7 @@ fi
 
 # Apply build-time patches to taglib sources (reverted after build)
 patch -p1 < tstring-wasm.patch
-patch -p1 < id3v2-zero-length-frames.patch
-trap 'patch -R -p1 < tstring-wasm.patch; patch -R -p1 < id3v2-zero-length-frames.patch' EXIT
+trap 'patch -R -p1 < tstring-wasm.patch' EXIT
 
 cmake -DWASI_SDK_PREFIX="$wasi_loc" -DCMAKE_TOOLCHAIN_FILE="$wasi_loc/share/cmake/wasi-sdk.cmake" -B build .
 cmake --build build --target taglib
