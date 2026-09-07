@@ -1,5 +1,6 @@
 //go:build ignore
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -590,6 +591,48 @@ static char* extract_codec(const TagLib::AudioProperties *audioProperties) {
   return codec.isEmpty() ? nullptr : to_char_array(codec);
 }
 
+static uint64_t mix64(uint64_t h, uint64_t v) {
+  h ^= v;
+  h *= 0x9E3779B97F4A7C15ULL;
+  h ^= h >> 29;
+  return h;
+}
+
+static uint64_t hash_block(uint64_t h, const char *p, size_t n) {
+  size_t i = 0;
+  for (; i + 8 <= n; i += 8) {
+    uint64_t v;
+    memcpy(&v, p + i, 8);
+    h = mix64(h, v);
+  }
+  if (i < n) {
+    uint64_t v = 0;
+    memcpy(&v, p + i, n - i);
+    h = mix64(h, v);
+  }
+  return h;
+}
+
+static const size_t kFpEdge = 4096;
+static const size_t kFpStripes = 64;
+static const size_t kFpStripeLen = 128;
+
+// Fingerprints a picture from its length, head, tail and evenly spaced stripes, so the cost stays
+// bounded (~16 KB hashed) while two different images still fingerprint differently in practice.
+static uint64_t picture_fingerprint(const TagLib::ByteVector &data) {
+  const char *p = data.data();
+  size_t n = data.size();
+  uint64_t h = mix64(0x2545F4914F6CDD1DULL, n);
+  if (n <= 2 * kFpEdge + kFpStripes * kFpStripeLen)
+    return hash_block(h, p, n);
+  h = hash_block(h, p, kFpEdge);
+  h = hash_block(h, p + n - kFpEdge, kFpEdge);
+  size_t step = (n - 2 * kFpEdge) / kFpStripes;
+  for (size_t s = 0; s < kFpStripes; s++)
+    h = hash_block(h, p + kFpEdge + s * step, kFpStripeLen);
+  return h;
+}
+
 static char** extract_image_metadata(const TagLib::List<TagLib::VariantMap> &pictures) {
   if (pictures.isEmpty())
     return nullptr;
@@ -604,7 +647,10 @@ static char** extract_image_metadata(const TagLib::List<TagLib::VariantMap> &pic
     TagLib::String type = p["pictureType"].toString();
     TagLib::String desc = p["description"].toString();
     TagLib::String mime = p["mimeType"].toString();
-    TagLib::String row = type + "\t" + desc + "\t" + mime;
+    char hash[17];
+    snprintf(hash, sizeof(hash), "%016llx",
+             static_cast<unsigned long long>(picture_fingerprint(p["data"].toByteVector())));
+    TagLib::String row = type + "\t" + desc + "\t" + mime + "\t" + hash;
     imageMetadata[i] = to_char_array(row);
     i++;
   }

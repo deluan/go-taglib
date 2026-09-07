@@ -388,6 +388,27 @@ func TestProperties(t *testing.T) {
 	eq(t, properties.Images[1].Type, "Lead Artist")
 	eq(t, properties.Images[1].Description, "The second image")
 	eq(t, properties.Images[1].MIMEType, "image/jpeg")
+	eq(t, len(properties.Images[0].Hash), 16)
+	eq(t, len(properties.Images[1].Hash), 16)
+	eq(t, properties.Images[0].Hash != properties.Images[1].Hash, true)
+}
+
+func TestImageHashMatchesAcrossFiles(t *testing.T) {
+	t.Parallel()
+
+	flac := tmpf(t, egFLAC, "eg.flac")
+	mp3 := tmpf(t, egMP3, "eg.mp3")
+	nilErr(t, taglib.WriteImage(flac, coverJPG))
+	nilErr(t, taglib.WriteImage(mp3, coverJPG))
+
+	flacProps, err := taglib.ReadProperties(flac)
+	nilErr(t, err)
+	mp3Props, err := taglib.ReadProperties(mp3)
+	nilErr(t, err)
+
+	eq(t, len(flacProps.Images[0].Hash), 16)
+	eq(t, flacProps.Images[0].Hash, mp3Props.Images[0].Hash)
+	eq(t, flacProps.Images[0].Hash != flacProps.Images[1].Hash, true)
 }
 
 func TestPropertiesBitsPerSample(t *testing.T) {

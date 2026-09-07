@@ -348,19 +348,6 @@ func (f *File) Properties() Properties {
 		return Properties{}
 	}
 
-	var images []ImageDesc
-	for _, row := range raw.imageDescs {
-		parts := strings.SplitN(row, "\t", 3)
-		if len(parts) != 3 {
-			continue
-		}
-		images = append(images, ImageDesc{
-			Type:        parts[0],
-			Description: parts[1],
-			MIMEType:    parts[2],
-		})
-	}
-
 	return Properties{
 		Length:        time.Duration(raw.lengthInMilliseconds) * time.Millisecond,
 		Channels:      uint(raw.channels),
@@ -368,8 +355,24 @@ func (f *File) Properties() Properties {
 		Bitrate:       uint(raw.bitrate),
 		BitsPerSample: uint(raw.bitsPerSample),
 		Codec:         raw.codec,
-		Images:        images,
+		Images:        parseImageDescs(raw.imageDescs),
 	}
+}
+
+func parseImageDescs(rows []string) []ImageDesc {
+	var images []ImageDesc
+	for _, row := range rows {
+		parts := strings.SplitN(row, "\t", 4)
+		if len(parts) < 3 {
+			continue
+		}
+		desc := ImageDesc{Type: parts[0], Description: parts[1], MIMEType: parts[2]}
+		if len(parts) == 4 {
+			desc.Hash = parts[3]
+		}
+		images = append(images, desc)
+	}
+	return images
 }
 
 // Image reads the embedded image at the specified index from the file.
@@ -741,6 +744,9 @@ type ImageDesc struct {
 	Description string
 	// MIMEType is the MIME type of the image (e.g., "image/jpeg")
 	MIMEType string
+	// Hash is a 16-hex-char fingerprint of the image bytes (length, head, tail and sampled
+	// stripes). Equal hashes mean the same picture for any practical purpose; it is not a full digest.
+	Hash string
 }
 
 // ReadProperties reads the audio properties from a file at the given path.
@@ -763,19 +769,6 @@ func ReadProperties(path string) (Properties, error) {
 		return Properties{}, fmt.Errorf("call: %w", err)
 	}
 
-	var images []ImageDesc
-	for _, row := range raw.imageDescs {
-		parts := strings.SplitN(row, "\t", 3)
-		if len(parts) != 3 {
-			continue
-		}
-		images = append(images, ImageDesc{
-			Type:        parts[0],
-			Description: parts[1],
-			MIMEType:    parts[2],
-		})
-	}
-
 	return Properties{
 		Length:        time.Duration(raw.lengthInMilliseconds) * time.Millisecond,
 		Channels:      uint(raw.channels),
@@ -783,7 +776,7 @@ func ReadProperties(path string) (Properties, error) {
 		Bitrate:       uint(raw.bitrate),
 		BitsPerSample: uint(raw.bitsPerSample),
 		Codec:         raw.codec,
-		Images:        images,
+		Images:        parseImageDescs(raw.imageDescs),
 	}, nil
 }
 
