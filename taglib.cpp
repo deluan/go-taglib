@@ -1,4 +1,5 @@
 //go:build ignore
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -621,11 +622,13 @@ static FileProperties* read_file_properties(TagLib::FileRef &file) {
     return nullptr;
 
   auto audioProperties = file.audioProperties();
-  props->lengthInMilliseconds = audioProperties->lengthInMilliseconds();
-  props->channels = audioProperties->channels();
-  props->sampleRate = audioProperties->sampleRate();
-  props->bitrate = audioProperties->bitrate();
-  props->bitsPerSample = extract_bits_per_sample(audioProperties);
+  // TagLib returns signed ints that can be negative for malformed files. The
+  // fields below are unsigned, so clamp to avoid wrapping to huge values.
+  props->lengthInMilliseconds = std::max(0, audioProperties->lengthInMilliseconds());
+  props->channels = std::max(0, audioProperties->channels());
+  props->sampleRate = std::max(0, audioProperties->sampleRate());
+  props->bitrate = std::max(0, audioProperties->bitrate());
+  props->bitsPerSample = std::max(0, extract_bits_per_sample(audioProperties));
   props->codec = extract_codec(audioProperties);
   props->imageMetadata = extract_image_metadata(file.complexProperties("PICTURE"));
 
