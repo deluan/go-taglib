@@ -43,10 +43,13 @@
 #include "dsf/dsffile.h"
 #include "dsf/dsfproperties.h"
 #include "dsdiff/dsdifffile.h"
+#include "dsdiff/dsdiffproperties.h"
 #include "trueaudio/trueaudiofile.h"
+#include "trueaudio/trueaudioproperties.h"
 #include "mpc/mpcfile.h"
 #include "mpc/mpcproperties.h"
 #include "shorten/shortenfile.h"
+#include "shorten/shortenproperties.h"
 #include "matroska/matroskafile.h"
 #include "matroska/matroskatag.h"
 #include "matroska/matroskasimpletag.h"
@@ -543,6 +546,12 @@ static int extract_bits_per_sample(const TagLib::AudioProperties *audioPropertie
     return wavProperties->bitsPerSample();
   if (const auto* dsfProperties = dynamic_cast<const TagLib::DSF::Properties*>(audioProperties))
     return dsfProperties->bitsPerSample();
+  if (const auto* dsdiffProperties = dynamic_cast<const TagLib::DSDIFF::Properties*>(audioProperties))
+    return dsdiffProperties->bitsPerSample();
+  if (const auto* ttaProperties = dynamic_cast<const TagLib::TrueAudio::Properties*>(audioProperties))
+    return ttaProperties->bitsPerSample();
+  if (const auto* shortenProperties = dynamic_cast<const TagLib::Shorten::Properties*>(audioProperties))
+    return shortenProperties->bitsPerSample();
   if (const auto* mkProperties = dynamic_cast<const TagLib::Matroska::Properties*>(audioProperties))
     return mkProperties->bitsPerSample();
   return 0;
