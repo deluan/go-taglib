@@ -8,6 +8,7 @@ import (
 	"image"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -1688,4 +1689,73 @@ func TestFileFormatString(t *testing.T) {
 	for _, tt := range tests {
 		eq(t, tt.format.String(), tt.want)
 	}
+}
+
+// TestCompilationCacheFallback checks that reading still works when the wazero
+// compilation cache can't be used. Each read runs in a child process, because
+// the runtime is created only once per process.
+func TestCompilationCacheFallback(t *testing.T) {
+	if path := os.Getenv("GO_TAGLIB_TEST_READ_PATH"); path != "" {
+		_, err := taglib.ReadTags(path)
+		nilErr(t, err)
+		return
+	}
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("needs unix file permissions and a non-root user")
+	}
+
+	path, err := filepath.Abs("testdata/eg.flac")
+	nilErr(t, err)
+
+	tmp := t.TempDir()
+	t.Cleanup(func() {
+		// Restore permissions, so t.TempDir can remove everything
+		_ = filepath.WalkDir(tmp, func(p string, _ os.DirEntry, _ error) error { return os.Chmod(p, 0o700) })
+	})
+
+	readWithTempDir := func(t *testing.T, dir string) {
+		t.Helper()
+		cmd := exec.Command(os.Args[0], "-test.run=^TestCompilationCacheFallback$")
+		cmd.Env = append(os.Environ(), "TMPDIR="+dir, "GO_TAGLIB_TEST_READ_PATH="+path)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("read with TMPDIR=%s: %v\n%s", dir, err, out)
+		}
+	}
+
+	t.Run("shared cache dir owned by another user", func(t *testing.T) {
+		dir := filepath.Join(tmp, "shared")
+		nilErr(t, os.MkdirAll(filepath.Join(dir, "go-taglib-wasm"), 0o700))
+		nilErr(t, os.Chmod(filepath.Join(dir, "go-taglib-wasm"), 0))
+
+		readWithTempDir(t, dir)
+
+		cached, _ := filepath.Glob(filepath.Join(dir, "go-taglib-wasm-*", "wazero-*", "*"))
+		if len(cached) == 0 {
+			t.Fatalf("expected a per-user compilation cache in %s", dir)
+		}
+	})
+
+	t.Run("cache dir not writable", func(t *testing.T) {
+		dir := filepath.Join(tmp, "readonly")
+		nilErr(t, os.Mkdir(dir, 0o700))
+		readWithTempDir(t, dir)
+
+		versionDirs, _ := filepath.Glob(filepath.Join(dir, "go-taglib-wasm-*", "wazero-*"))
+		eq(t, len(versionDirs), 1)
+		entries, err := os.ReadDir(versionDirs[0])
+		nilErr(t, err)
+		for _, e := range entries {
+			nilErr(t, os.Remove(filepath.Join(versionDirs[0], e.Name())))
+		}
+		nilErr(t, os.Chmod(versionDirs[0], 0o500))
+
+		readWithTempDir(t, dir)
+	})
+
+	t.Run("temp dir not accessible", func(t *testing.T) {
+		dir := filepath.Join(tmp, "noaccess")
+		nilErr(t, os.Mkdir(dir, 0))
+
+		readWithTempDir(t, dir)
+	})
 }

@@ -1039,18 +1039,40 @@ func hostStreamLength(_ context.Context, streamId uint32) int64 {
 }
 
 var getRuntimeOnce = sync.OnceValues(func() (rc, error) {
+	// The compilation cache only speeds up startup. If it can't be used (e.g. the
+	// dir is not accessible, or the disk is full), run without it.
+	if cache, err := wazero.NewCompilationCacheWithDir(compilationCacheDir()); err == nil {
+		if r, err := newRuntime(cache); err == nil {
+			return r, nil
+		}
+		_ = cache.Close(context.Background())
+	}
+	return newRuntime(nil)
+})
+
+// compilationCacheDir returns a per-user dir, so users sharing a machine don't
+// block each other's cache.
+func compilationCacheDir() string {
+	name := "go-taglib-wasm"
+	if uid := os.Getuid(); uid >= 0 { // -1 on Windows, where TempDir is per-user by default
+		name = fmt.Sprintf("%s-%d", name, uid)
+	}
+	return filepath.Join(os.TempDir(), name)
+}
+
+func newRuntime(cache wazero.CompilationCache) (_ rc, err error) {
 	ctx := context.Background()
 
-	cacheDir := filepath.Join(os.TempDir(), "go-taglib-wasm")
-	compilationCache, err := wazero.NewCompilationCacheWithDir(cacheDir)
-	if err != nil {
-		return rc{}, err
+	config := wazero.NewRuntimeConfig()
+	if cache != nil {
+		config = config.WithCompilationCache(cache)
 	}
-
-	runtime := wazero.NewRuntimeWithConfig(ctx,
-		wazero.NewRuntimeConfig().
-			WithCompilationCache(compilationCache),
-	)
+	runtime := wazero.NewRuntimeWithConfig(ctx, config)
+	defer func() {
+		if err != nil {
+			_ = runtime.Close(ctx)
+		}
+	}()
 	wasi_snapshot_preview1.MustInstantiate(ctx, runtime)
 
 	_, err = runtime.
@@ -1092,7 +1114,7 @@ var getRuntimeOnce = sync.OnceValues(func() (rc, error) {
 		Runtime:        runtime,
 		CompiledModule: compiled,
 	}, nil
-})
+}
 
 type module struct {
 	mod api.Module
