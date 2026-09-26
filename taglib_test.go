@@ -339,10 +339,8 @@ func TestOpenStreamWithFilename(t *testing.T) {
 func TestWAVLatin1InfoChunk(t *testing.T) {
 	t.Parallel()
 
-	// WAV files with RIFF INFO chunks encoded in Latin-1 (ISO-8859-1) should
-	// be readable without crashing. The "ö" character (0xF6 in Latin-1) is not
-	// valid UTF-8 and previously caused a crash in the WASM build. Invalid
-	// UTF-8 is now decoded as Windows-1252.
+	// RIFF INFO chunks written in Latin-1 (ISO-8859-1) aren't valid UTF-8:
+	// the "ö" is a single 0xF6 byte. Such text is decoded as Windows-1252.
 	t.Run("file", func(t *testing.T) {
 		path := tmpf(t, egWAVLatin1, "eg-latin1.wav")
 		tags, err := taglib.ReadTags(path)
